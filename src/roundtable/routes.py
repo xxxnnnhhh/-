@@ -36,6 +36,7 @@ class SeatConfig(BaseModel):
     temperature: float = Field(default=0.7, description="温度参数")
     model_name: str | None = Field(default=None, description="可选独立模型")
     is_moderator: bool = Field(default=False, description="是否为主持人")
+    character_id: str | None = Field(default=None, description="人物库角色 ID（可选）")
 
 
 class CompressorConfig(BaseModel):
@@ -70,6 +71,7 @@ class AddSeatRequest(BaseModel):
     temperature: float = Field(default=0.7, description="温度参数")
     model_name: str | None = Field(default=None, description="可选独立模型")
     is_moderator: bool = Field(default=False, description="是否为主持人")
+    character_id: str | None = Field(default=None, description="人物库角色 ID（可选）")
 
 
 # ============ 辅助函数 ============

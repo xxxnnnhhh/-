@@ -28,21 +28,31 @@
 → LLM 生成四通道 → 规则过滤(修正重写) → 状态更新(衰减/回归/事件重配)
 ```
 
-## 模块划分（src/story/，与圆桌模块独立）
+## 模块划分
 
-- `models.py`：Character / StoryEvent / Trait / StoryMessage / StorySession，JSON 持久化
-- `personality.py`：人格算法引擎（三我浮动、认知评价、行为层、思考深度、规则过滤、状态更新）
-- `prompts.py`：角色系统提示词（人物卡）、旁白提示词、修正提示词
+**人物库（共享）`src/characters/`**
+- `models.py`：Character / StoryEvent / Trait，JSON 持久化（data/characters/）
+- `personality.py`：人格算法引擎（三我浮动、认知评价、行为层、思考深度、规则过滤、状态更新、四通道解析）
+- `prompts.py`：角色系统提示词（人物卡）、修正提示词
+- `manager.py` / `routes.py`：全局共享管理器 + REST API `/api/characters/*`
+
+**故事机器 `src/story/`（复用人物库）**
+- `models.py`：StoryMessage / StorySession（角色模型从人物库再导出）
+- `prompts.py`：场景/旁白/角色轮次提示词
 - `runner.py`：StoryRunner（对演主循环）+ StoryManager（生命周期/持久化/干预）
 - `routes.py`：REST API `/api/story/*`
 
+**圆桌集成**：`Seat` 支持 `character_id`，命中人物库角色时发言走完整人格流水线
+（事件触发 → 三我浮动 → 四通道 → 规则过滤 → 状态更新），普通席位不受影响。
+
 前端：`web/src/pages/StoryMachinePage.tsx`（角色工坊 / 剧场控制台 / 对演舞台），
-注册为"故事机器"主导航 Tab。
+`web/src/pages/CharacterLibraryPage.tsx`（人物库编辑页），分别注册为
+"故事机器"与"人物库"主导航 Tab；圆桌创建表单支持按席位从人物库选角。
 
 ## API
 
 ```
-POST/GET/DELETE /api/story/characters[/{id}]
+POST/GET/DELETE /api/characters[/{id}]     # 人物库（共享）
 POST/GET /api/story/sessions[/{id}]
 POST /api/story/sessions/{id}/start|stop|pause|resume
 POST /api/story/sessions/{id}/inject      # 导演注入（旁白/突发事件/剧情指令）
@@ -62,3 +72,4 @@ GET  /api/story/sessions/{id}/export     # 导出 Markdown 剧本
 "林晚"（60/20/20，火爆）两个角色，雨夜咖啡馆场景对演 2 轮：
 林晚本我占比浮动至 82%，愤怒升至 0.82，动作从摩挲杯沿升级为撑桌起身；
 沈默保持克制。四通道、情绪向量、旁白、导出、状态持久化全部正常。
+圆桌选角实测通过：同一对角色在圆桌中互辩，四通道发言与状态更新同样生效。

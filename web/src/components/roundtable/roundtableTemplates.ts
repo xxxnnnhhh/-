@@ -3,6 +3,7 @@ export interface SeatFormItem {
   system_prompt: string;
   temperature: number;
   is_moderator: boolean;
+  character_id?: string;
 }
 
 export const ROUNDTABLE_TEMPLATES = [

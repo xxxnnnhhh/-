@@ -4,6 +4,7 @@ export const CORE_TAB_IDS = [
   "graph",
   "roundtable",
   "story",
+  "characters",
   "orchestration",
   "workflow",
   "cron",

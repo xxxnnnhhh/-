@@ -5,6 +5,7 @@ import { useRoundtable } from "../hooks/useRoundtable";
 import TranscriptMessage from "../components/TranscriptMessage";
 import { getSeatColor } from "../lib/seatColors";
 import SeatCard from "../components/SeatCard";
+import { fetchCharacters, type Character } from "../lib/characterApi";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -70,6 +71,11 @@ export default function RoundtablePage() {
   const [newSeatName, setNewSeatName] = useState("");
   const [newSeatPrompt, setNewSeatPrompt] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [libraryCharacters, setLibraryCharacters] = useState<Character[]>([]);
+
+  useEffect(() => {
+    void fetchCharacters().then((res) => setLibraryCharacters(res.characters));
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -104,6 +110,7 @@ export default function RoundtablePage() {
         system_prompt: s.system_prompt,
         temperature: s.temperature,
         is_moderator: s.is_moderator || false,
+        character_id: (s as SeatFormItem).character_id,
       }))
     );
   };
@@ -124,7 +131,7 @@ export default function RoundtablePage() {
   };
 
   // 更新席位
-  const updateSeat = (index: number, field: keyof SeatFormItem, value: string | number | boolean) => {
+  const updateSeat = (index: number, field: keyof SeatFormItem, value: string | number | boolean | undefined) => {
     setSeatForms((prev) =>
       prev.map((s, i) => (i === index ? { ...s, [field]: value } : s))
     );
@@ -143,6 +150,7 @@ export default function RoundtablePage() {
         system_prompt: s.system_prompt || `你是${s.role_name}。`,
         temperature: s.temperature,
         is_moderator: s.is_moderator,
+        character_id: s.character_id || undefined,
       })),
       max_rounds: maxRounds,
       strategy: selectedStrategy,
@@ -287,6 +295,7 @@ export default function RoundtablePage() {
               setCompressorInterval={setCompressorInterval}
               seatForms={seatForms}
               updateSeat={updateSeat}
+              libraryCharacters={libraryCharacters}
               addSeat={addSeat}
               removeSeat={removeSeat}
               applyTemplate={applyTemplate}
@@ -728,6 +737,7 @@ function CreateForm({
   setCompressorInterval,
   seatForms,
   updateSeat,
+  libraryCharacters,
   addSeat,
   removeSeat,
   applyTemplate,
@@ -748,7 +758,8 @@ function CreateForm({
   compressorInterval: number;
   setCompressorInterval: (v: number) => void;
   seatForms: SeatFormItem[];
-  updateSeat: (i: number, field: keyof SeatFormItem, value: string | number | boolean) => void;
+  updateSeat: (i: number, field: keyof SeatFormItem, value: string | number | boolean | undefined) => void;
+  libraryCharacters: Character[];
   addSeat: () => void;
   removeSeat: (i: number) => void;
   applyTemplate: (tpl: RoundtableTemplate) => void;
@@ -961,6 +972,32 @@ function CreateForm({
                 )}
               </div>
               <label htmlFor={`seat-prompt-${i}`} className="sr-only">角色 Prompt</label>
+              <div className="flex items-center gap-2">
+                <label htmlFor={`seat-character-${i}`} className="text-xs text-slate-500 whitespace-nowrap">
+                  人物库选角
+                </label>
+                <select
+                  id={`seat-character-${i}`}
+                  value={seat.character_id ?? ""}
+                  onChange={(e) => {
+                    const cid = e.target.value || undefined;
+                    const picked = libraryCharacters.find((c) => c.character_id === cid);
+                    updateSeat(i, "character_id", cid);
+                    if (picked) {
+                      updateSeat(i, "role_name", picked.name);
+                      updateSeat(i, "system_prompt", "");
+                    }
+                  }}
+                  className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300 focus:outline-none focus:border-indigo-500/50 min-h-[44px]"
+                >
+                  <option value="">（普通席位）</option>
+                  {libraryCharacters.map((c) => (
+                    <option key={c.character_id} value={c.character_id}>
+                      {c.name}（本{c.base_ratio.id}/自{c.base_ratio.ego}/超{c.base_ratio.superego}）
+                    </option>
+                  ))}
+                </select>
+              </div>
               <textarea
                 id={`seat-prompt-${i}`}
                 value={seat.system_prompt}

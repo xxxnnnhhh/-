@@ -6,16 +6,13 @@ StoryManager：角色/会话的创建、持久化、生命周期与用户干预�
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 from datetime import datetime, timezone
-from pathlib import Path
 
 from src.config import SESSIONS_DIR
+from src.characters.manager import get_character_manager
 from src.core.llm_client import create_llm
 from src.story.models import (
-    CHARACTERS_DIR,
     Character,
     StoryMessage,
     StorySession,
@@ -42,80 +39,6 @@ from src.story.prompts import (
 from src.web.event_bus import event_bus
 
 logger = logging.getLogger("story")
-
-
-# ============================================================
-# 四通道解析
-# ============================================================
-
-_SECTION_RE = re.compile(r"【(?P<key>情绪|内心|表情|动作|台词)】(?P<value>.*?)(?=【|$)", re.S)
-
-
-def _parse_emotion(text: str) -> dict:
-    """解析"愤怒:0.6、恐惧:0.2"或"anger:0.6, fear:0.2"格式。"""
-    result = {}
-    tokens = re.split(r"[、，,;\s]+", text.strip())
-    label_to_key = {v: k for k, v in EMOTION_LABELS.items()}
-    for token in tokens:
-        if ":" not in token:
-            continue
-        label, _, raw = token.partition(":")
-        label = label.strip().lower()
-        key = label_to_key.get(label, label)
-        if key not in EMOTION_KEYS:
-            continue
-        try:
-            result[key] = clamp(float(raw.strip()))
-        except ValueError:
-            continue
-    return result
-
-
-def parse_turn(text: str) -> dict:
-    """解析模型输出的四通道表演。优先 JSON，其次【标记】格式。"""
-    result = {
-        "thinking": "", "expression": "", "action": "", "speech": "",
-        "emotion": {},
-    }
-    if not text:
-        return result
-
-    # JSON 尝试
-    stripped = text.strip()
-    if stripped.startswith("{"):
-        try:
-            data = json.loads(stripped)
-            if isinstance(data, dict):
-                for key in ("thinking", "expression", "action", "speech"):
-                    result[key] = str(data.get(key, "") or "")
-                emo = data.get("emotion")
-                if isinstance(emo, dict):
-                    result["emotion"] = _parse_emotion(
-                        "、".join(f"{k}:{v}" for k, v in emo.items())
-                    )
-                return result
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # 标记格式
-    for match in _SECTION_RE.finditer(stripped):
-        key = match.group("key")
-        value = match.group("value").strip()
-        if key == "情绪":
-            result["emotion"] = _parse_emotion(value)
-        elif key == "内心":
-            result["thinking"] = value
-        elif key == "表情":
-            result["expression"] = value.strip("（）()")
-        elif key == "动作":
-            result["action"] = value.strip("（）()")
-        elif key == "台词":
-            result["speech"] = value.strip("「」\"'")
-
-    # 一个标记都没命中 → 整段当台词
-    if not any((result["thinking"], result["expression"], result["action"], result["speech"])):
-        result["speech"] = stripped
-    return result
 
 
 # ============================================================
@@ -425,7 +348,8 @@ class StoryManager:
     """角色与会话的注册表 + 生命周期管理。"""
 
     def __init__(self):
-        self.characters: dict[str, Character] = {}
+        self._character_manager = get_character_manager()
+        self.characters: dict[str, Character] = self._character_manager.characters
         self.sessions: dict[str, StorySession] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._queues: dict[str, asyncio.Queue] = {}
@@ -435,53 +359,19 @@ class StoryManager:
     # ---------- 角色 ----------
 
     def save_character(self, data: dict) -> Character:
-        cid = data.get("character_id", "")
-        if cid and cid in self.characters:
-            existing = self.characters[cid]
-            for key, value in data.items():
-                if key in ("traits", "events"):
-                    continue
-                if hasattr(existing, key):
-                    setattr(existing, key, value)
-            if "traits" in data:
-                from src.story.models import Trait
-                existing.traits = [Trait.from_dict(t) for t in data["traits"]]
-            if "events" in data:
-                from src.story.models import StoryEvent
-                existing.events = [StoryEvent.from_dict(e) for e in data["events"]]
-            existing.updated_at = datetime.now(timezone.utc).isoformat()
-            character = existing
-        else:
-            character = Character.from_dict(data)
-        character.save()
-        self.characters[character.character_id] = character
-        return character
+        return self._character_manager.save(data)
 
     def get_character(self, character_id: str) -> Character | None:
-        return self.characters.get(character_id)
+        return self._character_manager.get(character_id)
 
     def delete_character(self, character_id: str) -> bool:
-        character = self.characters.pop(character_id, None)
-        if not character:
-            return False
-        file_path = CHARACTERS_DIR / f"{character_id}.json"
-        if file_path.exists():
-            file_path.unlink()
-        return True
+        return self._character_manager.delete(character_id)
 
     def list_characters(self) -> list[dict]:
-        return [c.to_dict() for c in self.characters.values()]
+        return self._character_manager.list_all()
 
     def load_characters(self) -> None:
-        if not CHARACTERS_DIR.exists():
-            return
-        for file_path in CHARACTERS_DIR.glob("*.json"):
-            try:
-                character = Character.load(file_path.stem)
-                if character:
-                    self.characters[character.character_id] = character
-            except Exception as e:
-                logger.error(f"加载角色 {file_path.stem} 失败: {e}")
+        self._character_manager.load_all()
 
     # ---------- 会话 ----------
 
@@ -772,4 +662,3 @@ class StoryManager:
             session.save()
         self._tasks.clear()
         logger.info("StoryManager 已关闭")
-

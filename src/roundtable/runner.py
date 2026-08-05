@@ -513,6 +513,10 @@ class RoundtableRunner:
         同时通过 event_bus 推送 rt_token 事件。
         """
         # 构建上下文
+        # 人物库角色 → 完整人格流水线（三我/特质/事件/规则/情绪）
+        if seat.character_id:
+            return await self._speak_as_character(seat, session)
+
         messages = self._build_seat_context(seat, session)
 
         # 创建该 Seat 专属的 LLM 实例
@@ -541,6 +545,158 @@ class RoundtableRunner:
             full_content = f"[{seat.role_name} 发言异常，请稍后重试]"
 
         return full_content
+
+    async def _speak_as_character(
+        self, seat: Seat, session: RoundtableSession
+    ) -> str:
+        """人物库角色的发言：事件触发 → 三我浮动 → 四通道 → 规则过滤 → 状态更新。"""
+        from src.characters.manager import get_character_manager
+        from src.characters.personality import (
+            EMOTION_KEYS,
+            appraise_emotion,
+            behavior_layer,
+            check_rules,
+            clamp,
+            compute_ratios,
+            format_character_content,
+            mask_violations,
+            parse_turn,
+            thinking_depth,
+            trigger_events,
+            update_state,
+        )
+        from src.characters.prompts import build_character_system_prompt
+
+        character = get_character_manager().get(seat.character_id)
+        if character is None:
+            logger.warning(f"人物库中未找到角色 {seat.character_id}，回退普通席位")
+            messages = self._build_seat_context(seat, session)
+            return await self._stream_speak(messages, seat, session)
+
+        # 事件触发 + 认知评价 → 预估占比
+        tail_text = "\n".join(
+            e.content for e in session.transcript[-12:] if e.content
+        )
+        context_text = f"{session.topic}\n{tail_text}"
+        event_hits, event_shift = trigger_events(character, context_text)
+        projected = dict(character.emotion_state)
+        for key, val in event_shift.items():
+            projected[key] = clamp(projected.get(key, 0.0) + val)
+        projected = appraise_emotion(character, projected)
+
+        ratios = compute_ratios(character, projected)
+        layer = behavior_layer(ratios["id"])
+        depth = thinking_depth(ratios, stakes=0.4)
+
+        # 构建消息：人物卡 + 圆桌上下文
+        system = SystemMessage(
+            content=build_character_system_prompt(character, layer, depth, ratios)
+        )
+        participants = "\n".join(f"- {s.role_name}" for s in session.seats)
+        event_note = ""
+        if event_hits:
+            titles = "、".join(e.title for e in event_hits)
+            event_note = (
+                f"\n\n⚠️ 刚才的讨论触发了你的一段往事（{titles}），"
+                "它会直接影响你此刻的情绪和态度——按人物设定自然流露，不要解释原因。"
+            )
+        user_text = (
+            f"# 圆桌讨论\n\n"
+            f"**讨论主题**: {session.topic}\n\n"
+            f"**参与者**:\n{participants}\n\n"
+            f"**你的角色**: {character.name}\n\n"
+            f"**当前轮次**: 第 {session.current_round} 轮\n\n"
+            f"**讨论进展**:\n{tail_text or '（还没有发言，这是开场）'}"
+            f"{event_note}\n\n"
+            f"请按【情绪】【内心】【表情】【动作】【台词】的格式输出 "
+            f"{character.name} 这一轮的表现。"
+        )
+        messages = [system, HumanMessage(content=user_text)]
+
+        full_content = await self._stream_speak(
+            messages,
+            seat,
+            session,
+            model_override=character.model_name,
+            temperature=character.temperature,
+        )
+        parsed = parse_turn(full_content)
+
+        violations = check_rules(character, parsed)
+        if violations:
+            corrected = await self._correct_character(
+                character, violations, full_content
+            )
+            if corrected:
+                parsed = corrected
+            parsed = mask_violations(parsed, character)
+
+        emotion = {
+            k: clamp(parsed.get("emotion", {}).get(k, 0.0)) for k in EMOTION_KEYS
+        }
+        if not any(emotion.values()):
+            emotion = projected
+        update_state(character, emotion, event_hits)
+        character.save()
+
+        content = format_character_content(parsed)
+        return content or "……"
+
+    async def _stream_speak(
+        self,
+        messages: list,
+        seat: Seat,
+        session: RoundtableSession,
+        model_override: str | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        """通用流式发言：astream + rt_token 事件。"""
+        llm = create_llm(
+            model_override=model_override or seat.model_name,
+            model_params={"temperature": temperature if temperature is not None else seat.temperature},
+            streaming=True,
+        )
+        full_content = ""
+        try:
+            async for chunk in llm.astream(messages):
+                if chunk.content:
+                    token = chunk.content
+                    full_content += token
+                    session.append_active_turn(token)
+                    await event_bus.emit_chat({
+                        "type": "rt_token",
+                        "roundtable_id": session.session_id,
+                        "seat_id": seat.seat_id,
+                        "content": token,
+                    })
+        except Exception as e:
+            logger.error(f"Seat {seat.role_name} 发言异常: {e}", exc_info=True)
+            full_content = f"[{seat.role_name} 发言异常，请稍后重试]"
+        return full_content
+
+    async def _correct_character(
+        self, character, violations: list[str], original: str
+    ) -> dict | None:
+        """规则违规修正：一次重写尝试。"""
+        from src.characters.personality import check_rules, parse_turn
+        from src.characters.prompts import build_correction_messages
+        try:
+            llm = create_llm(
+                model_override=character.model_name,
+                model_params={"temperature": 0.7},
+                streaming=False,
+            )
+            response = await llm.ainvoke(
+                build_correction_messages(character, violations, original)
+            )
+            content = response.content if response and response.content else ""
+            parsed = parse_turn(content)
+            if check_rules(character, parsed):
+                return None
+            return parsed
+        except Exception as e:
+            logger.warning(f"规则修正失败: {e}")
+            return None
 
     def _build_seat_context(
         self, seat: Seat, session: RoundtableSession
@@ -930,6 +1086,7 @@ class RoundtableManager:
                 model_name=cfg.get("model_name"),
                 allowed_tools=cfg.get("allowed_tools"),
                 is_moderator=cfg.get("is_moderator", False),
+                character_id=cfg.get("character_id"),
             )
             seats.append(seat)
 

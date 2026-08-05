@@ -44,6 +44,7 @@ from src.tools import ToolRegistry, register_all_tool_factories
 from src.web.api_routes import router as api_router
 from src.roundtable.routes import router as roundtable_router
 from src.story.routes import router as story_router
+from src.characters.routes import router as characters_router
 from src.web.workflow_routes import router as workflow_router, tasks_router
 from src.web.workflow_node_control_routes import router as workflow_node_control_router
 from src.web.ws_handlers import handle_chat_ws, handle_events_ws
@@ -430,6 +431,8 @@ async def lifespan(app: FastAPI):
         app.state.all_tools = all_tools
         app.state.roundtable_manager = roundtable_mgr
         app.state.story_manager = story_manager
+        from src.characters.manager import get_character_manager
+        app.state.character_manager = get_character_manager()
         app.state.workspace_manager = workspace_mgr
         app.state.approval_manager = approval_mgr
         app.state.tool_registry = registry
@@ -572,6 +575,7 @@ def create_app(extension_manager: ExtensionManager | None = None) -> FastAPI:
     application.include_router(api_router)
     application.include_router(roundtable_router)
     application.include_router(story_router)
+    application.include_router(characters_router)
     application.include_router(workflow_router)
     application.include_router(tasks_router)
     application.include_router(workflow_node_control_router)

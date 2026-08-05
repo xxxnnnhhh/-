@@ -32,6 +32,10 @@ class Seat:
 
     包含角色配置（名称、system prompt、temperature 等）
     和运行时状态（idle / speaking / thinking / done）。
+
+    character_id: 可选，指向人物库（src.characters）中的共享角色。
+    设置后该席位使用完整人格流水线（三我/特质/事件/规则/情绪），
+    system_prompt 由人物卡自动生成。
     """
     seat_id: str
     role_name: str
@@ -40,6 +44,7 @@ class Seat:
     model_name: str | None = None
     allowed_tools: list[str] | None = None
     is_moderator: bool = False
+    character_id: str | None = None
     status: str = "idle"  # "idle" | "speaking" | "thinking" | "done"
 
     def to_dict(self) -> dict:
@@ -51,6 +56,7 @@ class Seat:
             "model_name": self.model_name,
             "allowed_tools": self.allowed_tools,
             "is_moderator": self.is_moderator,
+            "character_id": self.character_id,
             "status": self.status,
         }
 
@@ -64,6 +70,7 @@ class Seat:
             model_name=data.get("model_name"),
             allowed_tools=data.get("allowed_tools"),
             is_moderator=data.get("is_moderator", False),
+            character_id=data.get("character_id"),
             status=data.get("status", "idle"),
         )
 

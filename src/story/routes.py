@@ -19,36 +19,6 @@ def _get_story_manager(request: Request):
 
 # ============ 请求模型 ============
 
-class TraitIn(BaseModel):
-    name: str
-    id_delta: float = 0
-    ego_delta: float = 0
-    superego_delta: float = 0
-    emotion_amplifier: float = 1.0
-    regress_rate: float | None = None
-
-
-class EventIn(BaseModel):
-    title: str
-    description: str = ""
-    triggers: list[str] = Field(default_factory=list)
-    emotion_shift: dict = Field(default_factory=dict)
-    ratio_rebase: dict = Field(default_factory=dict)
-    decay: float = 0.02
-
-
-class CharacterIn(BaseModel):
-    character_id: str = ""
-    name: str
-    base_ratio: dict = Field(default_factory=lambda: {"id": 33, "ego": 34, "superego": 33})
-    traits: list[TraitIn] = Field(default_factory=list)
-    events: list[EventIn] = Field(default_factory=list)
-    hard_rules: list[str] = Field(default_factory=list)
-    soft_rules: list[str] = Field(default_factory=list)
-    temperature: float = 0.9
-    model_name: str | None = None
-
-
 class CreateStoryRequest(BaseModel):
     title: str
     scene: dict = Field(default_factory=dict)
@@ -66,38 +36,6 @@ class EmotionRequest(BaseModel):
     emotion: dict | None = None
     ratios: dict | None = None
     clear: bool = False
-
-
-# ============ 角色 ============
-
-@router.post("/characters")
-async def create_character(body: CharacterIn, request: Request):
-    mgr = _get_story_manager(request)
-    character = mgr.save_character(body.model_dump())
-    return {"success": True, "character": character.to_dict()}
-
-
-@router.get("/characters")
-async def list_characters(request: Request):
-    mgr = _get_story_manager(request)
-    return {"characters": mgr.list_characters(), "total": len(mgr.characters)}
-
-
-@router.get("/characters/{character_id}")
-async def get_character(character_id: str, request: Request):
-    mgr = _get_story_manager(request)
-    character = mgr.get_character(character_id)
-    if not character:
-        raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
-    return {"character": character.to_dict()}
-
-
-@router.delete("/characters/{character_id}")
-async def delete_character(character_id: str, request: Request):
-    mgr = _get_story_manager(request)
-    if not mgr.delete_character(character_id):
-        raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
-    return {"success": True, "message": f"角色 {character_id} 已删除"}
 
 
 # ============ 会话 ============
@@ -215,4 +153,3 @@ async def export_story(session_id: str, request: Request):
     if markdown is None:
         raise HTTPException(status_code=404, detail=f"未找到故事 {session_id}")
     return {"success": True, "markdown": markdown}
-
