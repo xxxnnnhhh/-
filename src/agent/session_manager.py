@@ -899,7 +899,9 @@ class SessionManager:
             return {"success": False, "message": f"会话 {session_id} 的 Graph 未初始化"}
 
         if session.status == "error":
-            return {"success": False, "message": f"会话 {session_id} 状态为 error，无法发送消息"}
+            # error 视为可重试：复位后继续，避免临时故障锁死会话
+            logger.info(f"会话 {session_id} 处于 error 状态，收到新消息，复位为 running 重试")
+            session.status = "running"
 
         # 如果当前正在 streaming，等待一下（或拒绝）
         if session.status == "streaming":
@@ -948,7 +950,9 @@ class SessionManager:
             return {"success": False, "message": f"会话 {session_id} 的 Graph 未初始化"}
 
         if session.status == "error":
-            return {"success": False, "message": f"会话 {session_id} 状态为 error，无法编辑消息"}
+            # error 视为可重试：复位后继续，避免临时故障锁死会话
+            logger.info(f"会话 {session_id} 处于 error 状态，收到编辑重发请求，复位为 running 重试")
+            session.status = "running"
 
         if session.status == "streaming":
             return {"success": False, "message": f"会话 {session_id} 正在流式输出中，无法编辑消息"}

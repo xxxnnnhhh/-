@@ -79,6 +79,9 @@ def _resolve_session_snapshot(session_mgr, session_id: str | None, *, bus=event_
 async def _validate_session(session_mgr, session_id: str, action_label: str):
     """通用会话前置校验：存在性、graph 初始化、状态检查。
 
+    error 状态不再拦截：视为一次可重试的失败，复位为 running 后继续，
+    避免一次临时网络错误把会话永久锁死。
+
     返回 (session, None) 校验通过；返回 (None, error_dict) 校验失败。
     """
     session = session_mgr.get_session(session_id)
@@ -87,7 +90,8 @@ async def _validate_session(session_mgr, session_id: str, action_label: str):
     if session.compiled_graph is None:
         return None, {"type": "error", "message": f"会话 {session_id} Graph 未初始化", "session_id": session_id, "terminal": False}
     if session.status == "error":
-        return None, {"type": "error", "message": f"会话 {session_id} 状态为 error，无法{action_label}", "session_id": session_id, "terminal": False}
+        logger.info(f"会话 {session_id} 处于 error 状态，收到「{action_label}」请求，复位为 running 重试")
+        session.status = "running"
     if session.status == "streaming" or session.invocation_active:
         return None, {"type": "error", "message": f"会话 {session_id} 正在处理中，请稍后再试", "session_id": session_id, "terminal": False}
     return session, None

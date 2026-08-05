@@ -289,11 +289,12 @@ export default function ChatPage() {
     }
   }, [displayMessages.length, isStreamingForCurrentView, sidePanel, loadSystemPrompt]);
 
-  // 判断会话是否可交互（后端有已编译 graph 且状态非 error/idle）
+  // 判断会话是否可交互（后端有已编译 graph 且状态非 idle）。
+  // error 视为可重试：后端收到新消息会自动复位，前端不再锁死发送。
   const isSessionInteractive = useCallback((session: SessionDetail | null): boolean => {
     if (!session) return false;
     if (session.has_graph === false) return false;
-    return session.status !== "error" && session.status !== "idle";
+    return session.status !== "idle";
   }, []);
 
   const isViewingOther = viewingSessionId !== null;

@@ -242,14 +242,13 @@ function reduceServerEvent(
       generationId: activeStream?.generationId || null,
       revision: event.revision ?? activeStream?.revision ?? null,
       status: event.status,
+      // error 状态视为可重试：不锁定输入，展示错误信息，用户可继续发送（后端会自动复位）
       phase:
-        event.status === "error"
-          ? "error"
-          : activeStream
-            ? "streaming"
-            : waitingForActiveStream
-              ? "reconnecting"
-              : "ready",
+        activeStream
+          ? "streaming"
+          : waitingForActiveStream
+            ? "reconnecting"
+            : "ready",
       messages: normalizeMessages(event.messages),
       streamingSegments: activeStream?.segments || [],
       isStreaming: Boolean(activeStream) || waitingForActiveStream,
