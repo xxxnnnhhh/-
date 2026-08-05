@@ -17,6 +17,7 @@ from pathlib import Path
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.config import SESSIONS_DIR, ROUNDTABLE_MAX_IDLE_CYCLES
+from src.characters.memory import append_memory, generate_character_log
 from src.core.llm_client import create_llm
 from src.web.event_bus import event_bus
 from src.roundtable.models import (
@@ -146,6 +147,9 @@ class RoundtableRunner:
         if session.transcript:
             await self._generate_conclusion(session)
 
+        # 为人物库角色写入人物日志（跨会话记忆）
+        await self._write_memory_logs(session)
+
         # 会议结束
         session.status = "ended"
         session.ended_at = datetime.now(timezone.utc).isoformat()
@@ -166,6 +170,39 @@ class RoundtableRunner:
             f"共 {controller.current_round} 轮, "
             f"{len(session.transcript)} 条发言"
         )
+
+    async def _write_memory_logs(self, session: RoundtableSession) -> None:
+        """圆桌结束后为人物库角色生成并写入人物日志。"""
+        if not session.transcript:
+            return
+        from src.characters.manager import get_character_manager
+
+        transcript_text = "\n".join(
+            f"{e.speaker_name}：{e.content}" for e in session.transcript[-30:]
+        )
+        for seat in session.seats:
+            if not seat.character_id:
+                continue
+            character = get_character_manager().get(seat.character_id)
+            if character is None:
+                continue
+            content = await generate_character_log(
+                character,
+                session.topic,
+                transcript_text,
+                session_type="roundtable",
+            )
+            if content:
+                append_memory(
+                    character,
+                    content,
+                    session.session_id,
+                    "roundtable",
+                    session.topic,
+                )
+                logger.info(
+                    f"已为角色 {character.name} 写入人物日志（{session.session_id}）"
+                )
 
     # ============ Round Robin 循环（兼容 Phase 1）============
 

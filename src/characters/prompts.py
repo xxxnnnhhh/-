@@ -56,6 +56,16 @@ def build_character_system_prompt(
     hard_lines = "\n".join(f"- {r}" for r in character.hard_rules) or "- 无"
     soft_lines = "\n".join(f"- {r}" for r in character.soft_rules) or "- 无"
 
+    memory_lines = ""
+    if character.memory_logs:
+        recent = character.memory_logs[-3:]
+        parts = []
+        for m in recent:
+            title = m.get("title", "")
+            ts = (m.get("timestamp", "") or "")[:10]
+            parts.append(f"- {title}（{ts}）：{m.get('content', '')}")
+        memory_lines = "\n".join(parts)
+
     layer_hint = {
         "温和": "你现在处于【温和层】：情绪受到约束，动作以细微、克制的肢体语言为主（抿嘴、握拳、垂眼、沉默）。",
         "强烈": "你现在处于【强烈层】：情绪压不住，动作可以更明显（提高音量、拍桌、摔东西），但还没有到失控。",
@@ -84,6 +94,9 @@ def build_character_system_prompt(
 
 ## 重大事件（人生经历，可能影响你的反应）
 {event_lines}
+
+## 近期经历（人物日志，跨会话记忆）
+{memory_lines or "（暂无）"}
 
 ## 情绪状态（前一轮的余温）
 {_format_emotion_state(character)}
@@ -132,4 +145,3 @@ def build_correction_messages(
         )
     )
     return [system, user]
-

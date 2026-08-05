@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from src.config import SESSIONS_DIR
 from src.characters.manager import get_character_manager
+from src.characters.memory import append_memory, generate_character_log
 from src.core.llm_client import create_llm
 from src.story.models import (
     Character,
@@ -26,6 +27,7 @@ from src.story.personality import (
     clamp,
     compute_ratios,
     mask_violations,
+    parse_turn,
     thinking_depth,
     trigger_events,
     update_state,
@@ -98,6 +100,9 @@ class StoryRunner:
         except Exception as e:
             logger.error(f"故事 {session.session_id} 异常: {e}", exc_info=True)
 
+        # 为每个角色生成人物日志（跨会话记忆）
+        await self._write_memory_logs(session)
+
         session.status = "ended"
         session.ended_at = datetime.now(timezone.utc).isoformat()
         session.save()
@@ -111,6 +116,35 @@ class StoryRunner:
             f"故事 {session.session_id} 已结束：{session.current_round} 轮，"
             f"{len(session.transcript)} 条记录"
         )
+
+    async def _write_memory_logs(self, session: StorySession) -> None:
+        """会话结束后为每个角色生成并写入人物日志。"""
+        if not session.transcript:
+            return
+        transcript_text = "\n".join(
+            m.format_script() for m in session.transcript[-30:]
+        )
+        for cid in session.character_ids:
+            character = self.manager.get_character(cid)
+            if character is None:
+                continue
+            content = await generate_character_log(
+                character,
+                session.title,
+                transcript_text,
+                session_type="story",
+            )
+            if content:
+                append_memory(
+                    character,
+                    content,
+                    session.session_id,
+                    "story",
+                    session.title,
+                )
+                logger.info(
+                    f"已为角色 {character.name} 写入人物日志（{session.session_id}）"
+                )
 
     # ---------- 旁白 ----------
 

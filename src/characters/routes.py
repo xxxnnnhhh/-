@@ -69,3 +69,12 @@ async def delete_character(character_id: str):
         raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
     return {"success": True, "message": f"角色 {character_id} 已删除"}
 
+
+@router.post("/{character_id}/memory/clear")
+async def clear_character_memory(character_id: str):
+    character = get_character_manager().get(character_id)
+    if not character:
+        raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
+    from src.characters.memory import clear_memory
+    clear_memory(character)
+    return {"success": True, "message": f"角色 {character_id} 的人物日志已清空"}

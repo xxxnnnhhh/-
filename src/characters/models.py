@@ -96,6 +96,7 @@ class Character:
     current_ratio: dict | None = None
     pressure: float = 0.0
     summary: str = ""
+    memory_logs: list[dict] = field(default_factory=list)  # 人物日志：跨会话记忆
     created_at: str = ""
     updated_at: str = ""
 
@@ -124,6 +125,7 @@ class Character:
             "current_ratio": dict(self.current_ratio) if self.current_ratio else dict(self.base_ratio),
             "pressure": self.pressure,
             "summary": self.summary,
+            "memory_logs": list(self.memory_logs),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -146,6 +148,7 @@ class Character:
             current_ratio=dict(data["current_ratio"]) if data.get("current_ratio") else None,
             pressure=float(data.get("pressure", 0.0) or 0.0),
             summary=data.get("summary", ""),
+            memory_logs=list(data.get("memory_logs", []) or []),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
         )
@@ -176,4 +179,3 @@ class Character:
         except (json.JSONDecodeError, IOError, OSError) as e:
             logger.error(f"加载角色 {character_id} 失败: {e}")
             return None
-

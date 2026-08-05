@@ -36,6 +36,13 @@ export interface Character {
   current_ratio: { id: number; ego: number; superego: number };
   pressure: number;
   summary: string;
+  memory_logs: Array<{
+    type: string;
+    session_id: string;
+    title: string;
+    content: string;
+    timestamp: string;
+  }>;
 }
 
 export const fetchCharacters = () =>
@@ -50,3 +57,7 @@ export const saveCharacter = (data: Partial<Character>) =>
 export const deleteCharacter = (id: string) =>
   request<{ success: boolean }>(`/characters/${id}`, { method: "DELETE" });
 
+export const clearCharacterMemory = (id: string) =>
+  request<{ success: boolean }>(`/characters/${id}/memory/clear`, {
+    method: "POST",
+  });
