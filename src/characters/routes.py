@@ -47,7 +47,11 @@ class CharacterIn(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1)
+    message: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="对话内容（最长 4000 字）",
+    )
 
 
 def _with_log_path(character: dict) -> dict:

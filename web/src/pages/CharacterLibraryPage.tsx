@@ -37,6 +37,13 @@ function ChatModal({ character, onClose }: {
   const send = async () => {
     const msg = input.trim();
     if (!msg || busy) return;
+    if (msg.length > 4000) {
+      setMessages((m) => [
+        ...m,
+        { role: "char", text: "（这条太长了，最多 4000 字，分几次说吧。）" },
+      ]);
+      return;
+    }
     setInput("");
     setMessages((m) => [...m, { role: "user", text: msg }]);
     setBusy(true);
@@ -54,7 +61,10 @@ function ChatModal({ character, onClose }: {
       ]);
       setState(res.state);
     } catch {
-      setMessages((m) => [...m, { role: "char", text: "（我走神了，没接住你的话……）" }]);
+      setMessages((m) => [
+        ...m,
+        { role: "char", text: "（这条我没接住……可能太长了，分几次说吧。）" },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -100,13 +110,13 @@ function ChatModal({ character, onClose }: {
           {messages.map((m, i) =>
             m.role === "user" ? (
               <div key={i} className="flex justify-end">
-                <div className="max-w-[80%] bg-indigo-600/80 text-white text-sm rounded-xl rounded-br-sm px-3 py-2">
+                <div className="max-w-[80%] bg-indigo-600/80 text-white text-sm rounded-xl rounded-br-sm px-3 py-2 whitespace-pre-wrap break-words">
                   {m.text}
                 </div>
               </div>
             ) : (
               <div key={i} className="flex justify-start">
-                <div className="max-w-[80%] bg-slate-800 border border-slate-700 rounded-xl rounded-bl-sm px-3 py-2">
+                <div className="max-w-[80%] bg-slate-800 border border-slate-700 rounded-xl rounded-bl-sm px-3 py-2 whitespace-pre-wrap break-words">
                   <div className="text-xs font-semibold text-amber-300 mb-1">{character.name}</div>
                   {(m.expression || m.action) && (
                     <div className="text-xs text-slate-400 mb-1">
@@ -128,25 +138,32 @@ function ChatModal({ character, onClose }: {
           )}
         </div>
 
-        <div className="p-3 border-t border-slate-700/60 flex gap-2">
-          <input
-            type="text"
+        <div className="p-3 border-t border-slate-700/60 space-y-1.5">
+          <textarea
+            rows={2}
             value={input}
+            maxLength={4000}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") void send();
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
             }}
-            placeholder={`问 ${character.name} 点什么…（比如他演过的那场戏）`}
-            className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60"
+            placeholder={`问 ${character.name} 点什么…（Enter 发送，Shift+Enter 换行）`}
+            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60 resize-none whitespace-pre-wrap"
           />
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={busy || !input.trim()}
-            className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-40"
-          >
-            发送
-          </button>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-slate-500">{input.length}/4000</span>
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={busy || !input.trim()}
+              className="px-4 py-1.5 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-40"
+            >
+              {busy ? "回想中…" : "发送"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

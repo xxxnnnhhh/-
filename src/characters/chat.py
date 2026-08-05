@@ -30,6 +30,7 @@ from src.core.llm_client import create_llm
 logger = logging.getLogger("characters.chat")
 
 MAX_CHAT_HISTORY = 30
+MAX_HISTORY_ENTRY = 800  # 历史每条最多保留的字数，防止上下文膨胀
 
 CHAT_EXTRA = (
     "\n\n# 单聊规则（重要）\n"
@@ -45,8 +46,8 @@ def _format_history(history: list[dict]) -> list:
     """把聊天历史转成 LLM 消息（最近 10 轮）。"""
     messages = []
     for item in history[-10:]:
-        user = str(item.get("user", ""))
-        assistant = str(item.get("assistant", ""))
+        user = str(item.get("user", ""))[:MAX_HISTORY_ENTRY]
+        assistant = str(item.get("assistant", ""))[:MAX_HISTORY_ENTRY]
         if user:
             messages.append(HumanMessage(content=user))
         if assistant:
@@ -56,7 +57,7 @@ def _format_history(history: list[dict]) -> list:
 
 async def run_chat(character: Character, user_message: str) -> dict:
     """执行一轮单聊。返回 {reply, state, log_path}。"""
-    context_text = user_message
+    context_text = user_message[:MAX_HISTORY_ENTRY]
     if character.chat_history:
         recent = character.chat_history[-3:]
         context_text += "\n" + "\n".join(
@@ -154,4 +155,3 @@ async def run_chat(character: Character, user_message: str) -> dict:
         },
         "log_path": log_path,
     }
-

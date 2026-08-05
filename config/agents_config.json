@@ -9,7 +9,7 @@
         "*"
       ],
       "disallowed_tools": null,
-      "model": null,
+      "model": "deepseek:deepseek-v4-flash",
       "max_turns": 100,
       "system_prompt_template": "",
       "copy_main_workspace": null,
@@ -22,7 +22,6 @@
       ],
       "model_params": {
         "thinking_enabled": true,
-        "reasoning_effort": null,
         "temperature": 0.7,
         "top_p": 1,
         "presence_penalty": 0,
@@ -165,5 +164,6 @@
         "response_format": null
       }
     }
-  }
+  },
+  "last_updated": "2026-08-05T10:18:55.259367+00:00"
 }
