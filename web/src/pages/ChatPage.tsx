@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send, Trash2, X,
-  Square, Edit3, Minimize2,
+  Square, Edit3, Minimize2, Globe, Download,
 } from "lucide-react";
+import { exportChatDocument, webSearch } from "../lib/api";
 
 // Dialog focus trap helper
 function useDialogFocus(open: boolean, containerRef: React.RefObject<HTMLDivElement | null>) {
@@ -124,6 +125,10 @@ export default function ChatPage() {
     approve: handleApprove, reject: handleReject, clearResolved,
   } = useApprovals();
   const [input, setInput] = useState("");
+  const [searchOn, setSearchOn] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportInfo, setExportInfo] = useState<string | null>(null);
   const [sidePanel, setSidePanel] = useState<"sessions" | "prompt" | "workspace">("sessions");
 
   // 预设短语状态
@@ -450,9 +455,71 @@ export default function ChatPage() {
     }
   }, []);
 
-  const handleSend = () => {
-    if (!input.trim() || !canSend) return;
-    if (sendMessage(input.trim())) setInput("");
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || !canSend || searching) return;
+    let payload = text;
+    if (searchOn) {
+      setSearching(true);
+      try {
+        const res = await webSearch(text);
+        if (res.results.length > 0) {
+          const list = res.results
+            .map((r, i) => `${i + 1}. ${r.title}${r.snippet ? `：${r.snippet}` : ""}（${r.url}）`)
+            .join("\n");
+          payload = `【联网资料】\n${list}\n\n我的问题：${text}`;
+        }
+      } catch {
+        // 搜索失败时按原文发送
+      } finally {
+        setSearching(false);
+      }
+    }
+    if (sendMessage(payload)) setInput("");
+  };
+
+  const handleExportChat = async () => {
+    if (!targetSessionId || exporting) return;
+    setExporting(true);
+    setExportInfo(null);
+    try {
+      const title = viewingSession?.task || "对话记录";
+      const lines: string[] = [
+        `# ${title}`,
+        "",
+        `导出时间：${new Date().toLocaleString("zh-CN")}`,
+        "",
+        "## 对话内容",
+        "",
+      ];
+      for (const m of displayMessages) {
+        const type = m.type || m.role || "";
+        const content = (m.content || "").trim();
+        if (!content) continue;
+        if (type === "user") {
+          lines.push(`[用户] ${content}`, "");
+        } else if (type === "assistant") {
+          if (m.reasoning_content) {
+            lines.push(`（思考：${m.reasoning_content}）`, "");
+          }
+          lines.push(`[AI] ${content}`, "");
+        }
+      }
+      const markdown = lines.join("\n");
+      const res = await exportChatDocument(title, markdown);
+      setExportInfo(res.path);
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${title}-对话记录.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportInfo("（导出失败）");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleEditDisplayedMessage = useCallback((msgId: string, newContent: string) => {
@@ -636,6 +703,39 @@ export default function ChatPage() {
                 className="max-h-32 min-h-12 w-full resize-none rounded-lg border-none bg-transparent px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed"
               />
               <div className="mt-1 flex min-h-10 items-center justify-end gap-2">
+                <div className="mr-auto flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSearchOn((v) => !v)}
+                    title="发送前联网搜索最新资料"
+                    className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                      searchOn
+                        ? "border-cyan-500/70 bg-cyan-500/15 text-cyan-300"
+                        : "border-border/40 bg-slate-700/60 text-slate-400 hover:text-cyan-300"
+                    }`}
+                  >
+                    <Globe size={11} aria-hidden="true" />
+                    {searching ? "搜索中…" : searchOn ? "联网中" : "联网"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportChat()}
+                    disabled={exporting || !targetSessionId}
+                    title="导出对话文档（Markdown，其他 AI 可直接读取）"
+                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border border-border/40 bg-slate-700/60 text-slate-400 hover:text-amber-300 disabled:opacity-40"
+                  >
+                    <Download size={11} aria-hidden="true" />
+                    {exporting ? "导出中…" : "导出"}
+                  </button>
+                  {exportInfo && (
+                    <span
+                      className="max-w-[180px] truncate text-[10px] text-slate-500 font-mono"
+                      title={exportInfo}
+                    >
+                      {exportInfo}
+                    </span>
+                  )}
+                </div>
                 {showModelSwitcher ? (
                   <ModelSwitcher
                     sessionId={targetSessionId}

@@ -29,6 +29,29 @@ export async function fetchExtensions() {
   }>("/extensions");
 }
 
+// ============ 通用工具（主对话页） ============
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+}
+
+export async function webSearch(query: string) {
+  return request<{ success: boolean; results: WebSearchResult[] }>("/web/search", {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  });
+}
+
+export async function exportChatDocument(title: string, markdown: string) {
+  return request<{ success: boolean; path: string }>("/web/chat/export", {
+    method: "POST",
+    body: JSON.stringify({ title, markdown }),
+  });
+}
+
 // ============ 会话 API ============
 
 export async function fetchSessions() {

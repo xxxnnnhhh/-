@@ -1,3 +1,11 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "doubao-chat-reader": {
+      "command": "C:\\Users\\XXX\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+      "args": [
+        "C:\\Users\\XXX\\plugins\\doubao-chat-reader\\mcp_server\\server.py"
+      ],
+      "env": {}
+    }
+  }
 }

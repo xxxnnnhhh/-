@@ -45,6 +45,7 @@ from src.web.api_routes import router as api_router
 from src.roundtable.routes import router as roundtable_router
 from src.story.routes import router as story_router
 from src.characters.routes import router as characters_router
+from src.web.search_routes import router as search_router
 from src.web.workflow_routes import router as workflow_router, tasks_router
 from src.web.workflow_node_control_routes import router as workflow_node_control_router
 from src.web.ws_handlers import handle_chat_ws, handle_events_ws
@@ -576,6 +577,7 @@ def create_app(extension_manager: ExtensionManager | None = None) -> FastAPI:
     application.include_router(roundtable_router)
     application.include_router(story_router)
     application.include_router(characters_router)
+    application.include_router(search_router)
     application.include_router(workflow_router)
     application.include_router(tasks_router)
     application.include_router(workflow_node_control_router)
