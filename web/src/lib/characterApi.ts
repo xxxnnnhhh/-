@@ -24,6 +24,7 @@ export interface Character {
   character_id: string;
   name: string;
   base_ratio: { id: number; ego: number; superego: number };
+  ratio_descriptions: Record<string, string>;
   traits: Trait[];
   events: StoryEvent[];
   hard_rules: string[];

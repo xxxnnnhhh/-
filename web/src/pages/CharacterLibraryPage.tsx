@@ -22,54 +22,62 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** 三我占比：每个"我"都有独立数字输入框 + 滑杆，输入后自动归一化到 100 */
-function RatioSliders({ value, onChange }: {
-  value: { id: number; ego: number; superego: number };
-  onChange: (v: { id: number; ego: number; superego: number }) => void;
-}) {
-  const update = (key: "id" | "ego" | "superego", raw: number) => {
-    const clamped = Math.max(0, Math.min(100, Number.isFinite(raw) ? raw : 0));
-    const next = { ...value };
-    const others = (["id", "ego", "superego"] as const).filter((k) => k !== key);
-    const rest = 100 - clamped;
-    const totalOthers = value[others[0]] + value[others[1]] || 1;
-    next[key] = clamped;
-    next[others[0]] = Math.round((rest * value[others[0]]) / totalOthers);
-    next[others[1]] = 100 - clamped - next[others[0]];
-    onChange(next);
+/** 从文本中识别占比数字和性格描述，如 "40 冲动直率" / "35%" */
+function parseRatioText(text: string): { value: number | null; desc: string } {
+  const m = text.match(/(\d{1,3})/);
+  let value: number | null = null;
+  let desc = text;
+  if (m) {
+    value = Math.max(0, Math.min(100, parseInt(m[1], 10)));
+    desc = text.slice((m.index ?? 0) + m[0].length);
+  }
+  desc = desc.replace(/^[、，,;；:\s：\-—·.]+/, "").trim();
+  return { value, desc };
+}
+
+/** 三我占比归一化到 100 */
+function normalizeRatio(a: number, b: number, c: number) {
+  const total = a + b + c || 1;
+  const id = Math.round((a * 100) / total);
+  const ego = Math.round((b * 100) / total);
+  return {
+    id,
+    ego,
+    superego: 100 - id - ego,
   };
-  const rows: Array<{ key: "id" | "ego" | "superego"; label: string; color: string }> = [
-    { key: "id", label: "本我", color: "accent-red-500" },
-    { key: "ego", label: "自我", color: "accent-indigo-500" },
-    { key: "superego", label: "超我", color: "accent-emerald-500" },
+}
+
+/** 三我性格文本输入：每个"我"一个输入框，自动识别占比与描述 */
+function RatioTextInputs({ texts, onChange }: {
+  texts: { id: string; ego: string; superego: string };
+  onChange: (v: { id: string; ego: string; superego: string }) => void;
+}) {
+  const rows: Array<{ key: "id" | "ego" | "superego"; label: string }> = [
+    { key: "id", label: "本我" },
+    { key: "ego", label: "自我" },
+    { key: "superego", label: "超我" },
   ];
   return (
     <div className="space-y-2">
-      {rows.map((row) => (
-        <div key={row.key} className="flex items-center gap-2">
-          <span className="w-10 text-xs text-slate-400">{row.label}</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={Math.round(value[row.key])}
-            onChange={(e) => update(row.key, Number(e.target.value))}
-            className="w-16 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-sm text-slate-200 font-mono focus:outline-none focus:border-indigo-500/60"
-            aria-label={`${row.label}占比`}
-          />
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(value[row.key])}
-            onChange={(e) => update(row.key, Number(e.target.value))}
-            className={`w-full ${row.color}`}
-          />
-          <span className="w-10 text-right text-xs text-slate-300 font-mono">
-            {Math.round(value[row.key])}%
-          </span>
-        </div>
-      ))}
+      {rows.map((row) => {
+        const parsed = parseRatioText(texts[row.key]);
+        return (
+          <div key={row.key} className="flex items-center gap-2">
+            <span className="w-10 text-xs text-slate-400">{row.label}</span>
+            <input
+              type="text"
+              value={texts[row.key]}
+              onChange={(e) => onChange({ ...texts, [row.key]: e.target.value })}
+              placeholder={`${row.label}占比 + 性格描述，如 33 冲动直率`}
+              className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60"
+              aria-label={`${row.label}文本输入`}
+            />
+            <span className="w-12 text-right text-xs text-slate-300 font-mono">
+              {parsed.value ?? "?"}%
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -78,6 +86,7 @@ const emptyCharacter = (): Character => ({
   character_id: "",
   name: "",
   base_ratio: { id: 33, ego: 34, superego: 33 },
+  ratio_descriptions: {},
   traits: [],
   events: [],
   hard_rules: [],
@@ -162,6 +171,11 @@ function serializeEvents(events: StoryEvent[]): string {
 export default function CharacterLibraryPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [draft, setDraft] = useState<Character>(emptyCharacter());
+  const [ratioTexts, setRatioTexts] = useState<{ id: string; ego: string; superego: string }>({
+    id: "33 平衡",
+    ego: "34 理性",
+    superego: "33 守序",
+  });
   const [traitsText, setTraitsText] = useState("");
   const [eventsText, setEventsText] = useState("");
   const [hardRulesText, setHardRulesText] = useState("");
@@ -180,6 +194,12 @@ export default function CharacterLibraryPage() {
   const select = (c: Character) => {
     const copy = JSON.parse(JSON.stringify(c)) as Character;
     setDraft(copy);
+    const desc = copy.ratio_descriptions || {};
+    setRatioTexts({
+      id: `${Math.round(copy.base_ratio.id)}${desc.id ? ` ${desc.id}` : ""}`,
+      ego: `${Math.round(copy.base_ratio.ego)}${desc.ego ? ` ${desc.ego}` : ""}`,
+      superego: `${Math.round(copy.base_ratio.superego)}${desc.superego ? ` ${desc.superego}` : ""}`,
+    });
     setTraitsText(serializeTraits(copy.traits));
     setEventsText(serializeEvents(copy.events));
     setHardRulesText(copy.hard_rules.join("\n"));
@@ -189,6 +209,7 @@ export default function CharacterLibraryPage() {
 
   const startNew = () => {
     setDraft(emptyCharacter());
+    setRatioTexts({ id: "33 平衡", ego: "34 理性", superego: "33 守序" });
     setTraitsText("");
     setEventsText("");
     setHardRulesText("");
@@ -198,10 +219,24 @@ export default function CharacterLibraryPage() {
 
   const save = async () => {
     if (!draft.name.trim()) return;
+    const parsedId = parseRatioText(ratioTexts.id);
+    const parsedEgo = parseRatioText(ratioTexts.ego);
+    const parsedSuper = parseRatioText(ratioTexts.superego);
+    const base_ratio = normalizeRatio(
+      parsedId.value ?? draft.base_ratio.id,
+      parsedEgo.value ?? draft.base_ratio.ego,
+      parsedSuper.value ?? draft.base_ratio.superego,
+    );
+    const ratio_descriptions = {
+      id: parsedId.desc,
+      ego: parsedEgo.desc,
+      superego: parsedSuper.desc,
+    };
     await saveCharacter({
       character_id: draft.character_id,
       name: draft.name,
-      base_ratio: draft.base_ratio,
+      base_ratio,
+      ratio_descriptions,
       traits: parseTraitsText(traitsText),
       events: parseEventsText(eventsText),
       hard_rules: hardRulesText.split("\n").map((s) => s.trim()).filter(Boolean),
@@ -300,11 +335,8 @@ export default function CharacterLibraryPage() {
             </Field>
           </div>
 
-          <Field label="性格底色（三我占比，各自输入或拖动，自动归一化到 100）">
-            <RatioSliders
-              value={draft.base_ratio}
-              onChange={(base_ratio) => setDraft((d) => ({ ...d, base_ratio }))}
-            />
+          <Field label="三我性格（文本输入：每个框填「占比 + 性格描述」，自动识别并归一化到 100）">
+            <RatioTextInputs texts={ratioTexts} onChange={setRatioTexts} />
           </Field>
 
           <Field label="性格特质（每行：名称;本我增量;自我增量;超我增量;情绪放大;回归率）">
@@ -406,4 +438,3 @@ export default function CharacterLibraryPage() {
     </div>
   );
 }
-

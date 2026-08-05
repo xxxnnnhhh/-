@@ -35,6 +35,7 @@ class CharacterIn(BaseModel):
     character_id: str = ""
     name: str
     base_ratio: dict = Field(default_factory=lambda: {"id": 33, "ego": 34, "superego": 33})
+    ratio_descriptions: dict = Field(default_factory=dict)
     traits: list[TraitIn] = Field(default_factory=list)
     events: list[EventIn] = Field(default_factory=list)
     hard_rules: list[str] = Field(default_factory=list)

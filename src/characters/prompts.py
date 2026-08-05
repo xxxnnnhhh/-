@@ -72,6 +72,10 @@ def build_character_system_prompt(
         "极端": "你现在处于【极端层】：情绪几乎失控，动作可以到极端程度（砸门、掀桌、吼叫）——除非规则禁止。",
     }.get(layer, "")
 
+    desc_id = (character.ratio_descriptions or {}).get("id") or "原始冲动"
+    desc_ego = (character.ratio_descriptions or {}).get("ego") or "理性、权衡、思考"
+    desc_superego = (character.ratio_descriptions or {}).get("superego") or "良知、规则、自我批评"
+
     depth_hint = {
         "深": "你现在想得很多：内心独白要长而纠结，反复咀嚼对方的话和自己的感受。",
         "中": "你现在有思考：内心独白中等长度，想清楚了再开口。",
@@ -86,7 +90,7 @@ def build_character_system_prompt(
 基准：{_format_ratio(base)}
 当前：{_format_ratio(current_ratio)}
 含义：{_ratio_meaning(current_ratio)}
-本我 = 原始冲动；自我 = 现实调节；超我 = 道德约束。
+本我 = 原始冲动（{desc_id}）；自我 = 现实调节（{desc_ego}）；超我 = 道德约束（{desc_superego}）。
 当前占比决定你此刻的行为方式：本我越高越冲动直白，超我越高越克制隐忍，自我越高越想得多。
 
 ## 性格特质

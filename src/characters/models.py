@@ -84,6 +84,7 @@ class Character:
     character_id: str = ""
     name: str = "未命名角色"
     base_ratio: dict = field(default_factory=lambda: {"id": 33, "ego": 34, "superego": 33})
+    ratio_descriptions: dict = field(default_factory=dict)  # {"id": "冲动直率", "ego": "...", "superego": "..."}
     traits: list[Trait] = field(default_factory=list)
     events: list[StoryEvent] = field(default_factory=list)
     hard_rules: list[str] = field(default_factory=list)
@@ -113,6 +114,7 @@ class Character:
             "character_id": self.character_id,
             "name": self.name,
             "base_ratio": dict(self.base_ratio),
+            "ratio_descriptions": dict(self.ratio_descriptions),
             "traits": [t.to_dict() for t in self.traits],
             "events": [e.to_dict() for e in self.events],
             "hard_rules": list(self.hard_rules),
@@ -136,6 +138,7 @@ class Character:
             character_id=data.get("character_id", ""),
             name=data.get("name", "未命名角色"),
             base_ratio=dict(data.get("base_ratio", {"id": 33, "ego": 34, "superego": 33})),
+            ratio_descriptions=dict(data.get("ratio_descriptions", {}) or {}),
             traits=[Trait.from_dict(t) for t in data.get("traits", [])],
             events=[StoryEvent.from_dict(e) for e in data.get("events", [])],
             hard_rules=list(data.get("hard_rules", []) or []),
