@@ -683,9 +683,9 @@ export default function ChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
-                    handleSend();
+                    void handleSend();
                   }
                 }}
                 aria-label="聊天消息输入"
@@ -699,7 +699,6 @@ export default function ChatPage() {
                       : "输入消息... (Shift+Enter 换行)"
                 }
                 rows={1}
-                disabled={!canSend && !isStreamingForCurrentView}
                 className="max-h-32 min-h-12 w-full resize-none rounded-lg border-none bg-transparent px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed"
               />
               <div className="mt-1 flex min-h-10 items-center justify-end gap-2">
