@@ -128,6 +128,9 @@ class StoryRunner:
             character = self.manager.get_character(cid)
             if character is None:
                 continue
+            # 幂等：同一场戏不重复写入
+            if any(m.get("session_id") == session.session_id for m in character.memory_logs):
+                continue
             content = await generate_character_log(
                 character,
                 session.title,
@@ -473,6 +476,8 @@ class StoryManager:
             await self._runner.run(session)
         except asyncio.CancelledError:
             await self._finalize_interrupted_turn(session)
+            # 即使被手动停止，也要为角色留下这场戏的日志
+            await self._runner._write_memory_logs(session)
             session.status = "ended"
             session.ended_at = datetime.now(timezone.utc).isoformat()
             session.save()

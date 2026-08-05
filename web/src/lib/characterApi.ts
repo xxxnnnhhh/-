@@ -44,6 +44,33 @@ export interface Character {
     content: string;
     timestamp: string;
   }>;
+  chat_history?: Array<{
+    user: string;
+    assistant: string;
+    timestamp: string;
+  }>;
+  log_path?: string;
+}
+
+export interface ChatReply {
+  thinking: string;
+  expression: string;
+  action: string;
+  speech: string;
+  emotion: Record<string, number>;
+}
+
+export interface ChatResult {
+  success: boolean;
+  reply: ChatReply;
+  state: {
+    current_ratio: { id: number; ego: number; superego: number };
+    emotion_state: Record<string, number>;
+    layer: string;
+    event_hits: string[];
+    violations: string[];
+  };
+  log_path: string;
 }
 
 export const fetchCharacters = () =>
@@ -60,5 +87,16 @@ export const deleteCharacter = (id: string) =>
 
 export const clearCharacterMemory = (id: string) =>
   request<{ success: boolean }>(`/characters/${id}/memory/clear`, {
+    method: "POST",
+  });
+
+export const chatCharacter = (id: string, message: string) =>
+  request<ChatResult>(`/characters/${id}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+
+export const openCharacterLog = (id: string) =>
+  request<{ success: boolean; log_path: string }>(`/characters/${id}/log/open`, {
     method: "POST",
   });

@@ -98,6 +98,7 @@ class Character:
     pressure: float = 0.0
     summary: str = ""
     memory_logs: list[dict] = field(default_factory=list)  # 人物日志：跨会话记忆
+    chat_history: list[dict] = field(default_factory=list)  # 与用户的对话记录（最近 N 条）
     created_at: str = ""
     updated_at: str = ""
 
@@ -128,6 +129,7 @@ class Character:
             "pressure": self.pressure,
             "summary": self.summary,
             "memory_logs": list(self.memory_logs),
+            "chat_history": list(self.chat_history),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -152,6 +154,7 @@ class Character:
             pressure=float(data.get("pressure", 0.0) or 0.0),
             summary=data.get("summary", ""),
             memory_logs=list(data.get("memory_logs", []) or []),
+            chat_history=list(data.get("chat_history", []) or []),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
         )

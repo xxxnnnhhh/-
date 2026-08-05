@@ -1,17 +1,157 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { BookUser, Eraser, Plus, Save, Trash2 } from "lucide-react";
+import { BookUser, Eraser, FolderOpen, MessageCircle, Plus, Save, Trash2, X } from "lucide-react";
 import {
+  ChatResult,
   Character,
   StoryEvent,
   Trait,
+  chatCharacter,
   clearCharacterMemory,
   deleteCharacter,
   fetchCharacters,
+  openCharacterLog,
   saveCharacter,
 } from "@/lib/characterApi";
 
 const inputCls =
   "w-full bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60";
+
+interface ChatMsg {
+  role: "user" | "char";
+  text: string;
+  thinking?: string;
+  expression?: string;
+  action?: string;
+}
+
+/** 与单个角色的对话弹窗（回答基于人物日志，不编造） */
+function ChatModal({ character, onClose }: {
+  character: Character;
+  onClose: () => void;
+}) {
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [state, setState] = useState<ChatResult["state"] | null>(null);
+
+  const send = async () => {
+    const msg = input.trim();
+    if (!msg || busy) return;
+    setInput("");
+    setMessages((m) => [...m, { role: "user", text: msg }]);
+    setBusy(true);
+    try {
+      const res = await chatCharacter(character.character_id, msg);
+      setMessages((m) => [
+        ...m,
+        {
+          role: "char",
+          text: res.reply.speech,
+          thinking: res.reply.thinking,
+          expression: res.reply.expression,
+          action: res.reply.action,
+        },
+      ]);
+      setState(res.state);
+    } catch {
+      setMessages((m) => [...m, { role: "char", text: "（我走神了，没接住你的话……）" }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg h-[72vh] bg-slate-900 border border-slate-700 rounded-xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/60">
+          <div>
+            <div className="text-sm font-semibold text-slate-200">与 {character.name} 对话</div>
+            {state && (
+              <div className="text-[10px] text-slate-500 font-mono">
+                本{state.current_ratio.id}/自{state.current_ratio.ego}/超{state.current_ratio.superego}
+                {" · "}
+                {Object.entries(state.emotion_state)
+                  .filter(([, v]) => v > 0.05)
+                  .map(([k, v]) => `${k} ${Math.round(v * 100)}%`)
+                  .join(" ") || "平静"}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300"
+            aria-label="关闭对话"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="text-[10px] text-slate-500 text-center">
+            他记得自己演过的故事——问问他经历过的细节。
+          </div>
+          {messages.map((m, i) =>
+            m.role === "user" ? (
+              <div key={i} className="flex justify-end">
+                <div className="max-w-[80%] bg-indigo-600/80 text-white text-sm rounded-xl rounded-br-sm px-3 py-2">
+                  {m.text}
+                </div>
+              </div>
+            ) : (
+              <div key={i} className="flex justify-start">
+                <div className="max-w-[80%] bg-slate-800 border border-slate-700 rounded-xl rounded-bl-sm px-3 py-2">
+                  <div className="text-xs font-semibold text-amber-300 mb-1">{character.name}</div>
+                  {(m.expression || m.action) && (
+                    <div className="text-xs text-slate-400 mb-1">
+                      {m.expression && <span>（{m.expression}）</span>} {m.action}
+                    </div>
+                  )}
+                  <div className="text-sm text-slate-100">「{m.text}」</div>
+                  {m.thinking && (
+                    <div className="text-xs text-slate-500 italic mt-1">（内心：{m.thinking}）</div>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+          {busy && (
+            <div className="text-xs text-slate-500 pl-1">
+              {character.name} 正在回想……
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 border-t border-slate-700/60 flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void send();
+            }}
+            placeholder={`问 ${character.name} 点什么…（比如他演过的那场戏）`}
+            className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60"
+          />
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={busy || !input.trim()}
+            className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-40"
+          >
+            发送
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -181,6 +321,7 @@ export default function CharacterLibraryPage() {
   const [hardRulesText, setHardRulesText] = useState("");
   const [softRulesText, setSoftRulesText] = useState("");
   const [saved, setSaved] = useState(false);
+  const [chatChar, setChatChar] = useState<Character | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await fetchCharacters();
@@ -266,26 +407,38 @@ export default function CharacterLibraryPage() {
         </div>
         <div className="p-3 overflow-y-auto space-y-2">
           {characters.map((c) => (
-            <button
+            <div
               key={c.character_id}
-              type="button"
-              onClick={() => select(c)}
-              className={`w-full text-left px-3 py-2 rounded-lg border ${
+              className={`rounded-lg border flex ${
                 draft.character_id === c.character_id
                   ? "border-amber-500/70 bg-amber-500/10"
-                  : "border-slate-700/70 bg-slate-800/50 hover:border-slate-600"
+                  : "border-slate-700/70 bg-slate-800/50"
               }`}
             >
-              <div className="text-sm font-medium text-slate-200">{c.name}</div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                本{c.base_ratio.id} / 自{c.base_ratio.ego} / 超{c.base_ratio.superego}
-              </div>
-              {c.memory_logs.length > 0 && (
-                <div className="text-[10px] text-amber-500/70 mt-0.5">
-                  记忆 {c.memory_logs.length} 条
+              <button
+                type="button"
+                onClick={() => select(c)}
+                className="flex-1 text-left px-3 py-2"
+              >
+                <div className="text-sm font-medium text-slate-200">{c.name}</div>
+                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                  本{c.base_ratio.id} / 自{c.base_ratio.ego} / 超{c.base_ratio.superego}
                 </div>
-              )}
-            </button>
+                {c.memory_logs.length > 0 && (
+                  <div className="text-[10px] text-amber-500/70 mt-0.5">
+                    记忆 {c.memory_logs.length} 条
+                  </div>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatChar(c)}
+                title={`与 ${c.name} 单独对话`}
+                className="px-2 flex items-center text-slate-400 hover:text-amber-300"
+              >
+                <MessageCircle size={14} />
+              </button>
+            </div>
           ))}
           {characters.length === 0 && (
             <div className="text-xs text-slate-500 text-center py-8">
@@ -407,6 +560,18 @@ export default function CharacterLibraryPage() {
                 </button>
               )}
             </div>
+            {draft.log_path && (
+              <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-2">
+                <span className="truncate font-mono">日志文件：{draft.log_path}</span>
+                <button
+                  type="button"
+                  onClick={() => void openCharacterLog(draft.character_id)}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-amber-300 shrink-0"
+                >
+                  <FolderOpen size={10} /> 打开
+                </button>
+              </div>
+            )}
             {draft.memory_logs.length === 0 ? (
               <div className="text-xs text-slate-500">
                 暂无日志。角色在「故事机器」或「圆桌」中演出结束后，会自动生成经历日志，
@@ -435,6 +600,7 @@ export default function CharacterLibraryPage() {
           </div>
         </div>
       </div>
+      {chatChar && <ChatModal character={chatChar} onClose={() => setChatChar(null)} />}
     </div>
   );
 }

@@ -186,6 +186,11 @@ class RoundtableRunner:
             character = get_character_manager().get(seat.character_id)
             if character is None:
                 continue
+            if any(
+                m.get("session_id") == session.session_id
+                for m in character.memory_logs
+            ):
+                continue
             content = await generate_character_log(
                 character,
                 session.topic,
@@ -1192,6 +1197,8 @@ class RoundtableManager:
             await self._runner.run(session)
         except asyncio.CancelledError:
             await self._finalize_interrupted_turn(session)
+            # 即使被手动停止，也要为人物库角色留下这场讨论的日志
+            await self._runner._write_memory_logs(session)
             session.status = "ended"
             session.ended_at = datetime.now(timezone.utc).isoformat()
             session.save()

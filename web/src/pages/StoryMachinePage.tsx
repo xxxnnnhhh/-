@@ -529,7 +529,44 @@ function StagePanel({ active }: { active: StorySessionDetail | null }) {
 export default function StoryMachinePage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [sessions, setSessions] = useState<StorySessionSummary[]>([]);
-  const [active, setActive] = useState<StorySessionDetail | null>(null);
+  const [active, setActiveState] = useState<StorySessionDetail | null>(null);
+
+  const STORAGE_KEY = "story_machine:active_session";
+
+  // 记住当前场次：切窗口/刷新后回到页面自动恢复（演绎在后台持续进行）
+  const setActive = useCallback((s: StorySessionDetail | null) => {
+    setActiveState(s);
+    if (s) {
+      localStorage.setItem(STORAGE_KEY, s.session_id);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      void fetchStoryDetail(saved)
+        .then((d) => setActiveState(d))
+        .catch(() => localStorage.removeItem(STORAGE_KEY));
+    }
+  }, []);
+
+  // 从其他窗口/标签页切回来时立即刷新，避免后台节流导致的画面滞后
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        setActiveState((prev) => {
+          if (prev) {
+            void fetchStoryDetail(prev.session_id).then(setActiveState);
+          }
+          return prev;
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   const refreshCharacters = useCallback(async () => {
     const res = await fetchCharacters();

@@ -77,6 +77,12 @@ export default function RoundtablePage() {
     void fetchCharacters().then((res) => setLibraryCharacters(res.characters));
   }, []);
 
+  // 切窗口/刷新后恢复上次打开的圆桌（讨论在后台持续进行）
+  useEffect(() => {
+    const saved = localStorage.getItem("roundtable:active");
+    if (saved) void loadDetail(saved);
+  }, [loadDetail]);
+
   useEffect(() => {
     if (scrollRef.current) {
       const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -273,7 +279,10 @@ export default function RoundtablePage() {
             <EmptyState
               onShowCreate={() => setShowCreate(true)}
               roundtables={roundtables}
-              onSelect={(id) => loadDetail(id)}
+          onSelect={(id) => {
+            localStorage.setItem("roundtable:active", id);
+            loadDetail(id);
+          }}
               onDelete={(id) => handleDelete(id)}
             />
           )}

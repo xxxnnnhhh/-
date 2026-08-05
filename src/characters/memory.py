@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.characters.models import Character
+from src.characters.logs import append_log_entry
 from src.core.llm_client import create_llm
 
 logger = logging.getLogger("characters.memory")
@@ -80,10 +81,17 @@ def append_memory(
     character.memory_logs = character.memory_logs[-MAX_MEMORY_LOGS:]
     character.updated_at = datetime.now(timezone.utc).isoformat()
     character.save()
+    # 同步写入 E 盘的人物日志文件（按角色名命名）
+    append_log_entry(
+        character.name,
+        session_type,
+        title,
+        content,
+        timestamp=entry["timestamp"],
+    )
 
 
 def clear_memory(character: Character) -> None:
     character.memory_logs = []
     character.updated_at = datetime.now(timezone.utc).isoformat()
     character.save()
-
