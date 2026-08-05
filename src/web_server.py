@@ -43,6 +43,7 @@ from src.agent.session import AgentSession
 from src.tools import ToolRegistry, register_all_tool_factories
 from src.web.api_routes import router as api_router
 from src.roundtable.routes import router as roundtable_router
+from src.story.routes import router as story_router
 from src.web.workflow_routes import router as workflow_router, tasks_router
 from src.web.workflow_node_control_routes import router as workflow_node_control_router
 from src.web.ws_handlers import handle_chat_ws, handle_events_ws
@@ -88,6 +89,7 @@ async def lifespan(app: FastAPI):
     agent_config_mgr = None
     session_mgr = None
     roundtable_mgr = None
+    story_manager = None
     cron_scheduler = None
     workflow_mgr = None
 
@@ -112,6 +114,11 @@ async def lifespan(app: FastAPI):
                 await roundtable_mgr.shutdown()
             except Exception:
                 logger.debug("roundtable_mgr 清理失败", exc_info=True)
+        if story_manager:
+            try:
+                await story_manager.shutdown()
+            except Exception:
+                logger.debug("story_manager 清理失败", exc_info=True)
         if session_mgr:
             try:
                 await session_mgr.shutdown()
@@ -389,6 +396,15 @@ async def lifespan(app: FastAPI):
         roundtable_mgr = RoundtableManager()
         roundtable_mgr.load_sessions()
 
+        from src.story.runner import StoryManager
+        story_manager = StoryManager()
+        story_manager.load_characters()
+        story_manager.load_sessions()
+        logger.info(
+            f"StoryManager 已初始化：{len(story_manager.characters)} 个角色，"
+            f"{len(story_manager.sessions)} 场故事"
+        )
+
         # 初始化 CronScheduler
         from src.cron.jobs import CronJobManager
         from src.cron.scheduler import CronScheduler
@@ -413,6 +429,7 @@ async def lifespan(app: FastAPI):
         app.state.llm = llm
         app.state.all_tools = all_tools
         app.state.roundtable_manager = roundtable_mgr
+        app.state.story_manager = story_manager
         app.state.workspace_manager = workspace_mgr
         app.state.approval_manager = approval_mgr
         app.state.tool_registry = registry
@@ -454,6 +471,7 @@ async def lifespan(app: FastAPI):
         ("CronScheduler.stop", lambda: cron_scheduler.stop()),
         ("SessionManager.shutdown", lambda: session_mgr.shutdown()),
         ("RoundtableManager.shutdown", lambda: roundtable_mgr.shutdown()),
+        ("StoryManager.shutdown", lambda: story_manager.shutdown()),
         ("MCPClient.close", lambda: mcp.close()),
     ]:
         try:
@@ -553,6 +571,7 @@ def create_app(extension_manager: ExtensionManager | None = None) -> FastAPI:
 
     application.include_router(api_router)
     application.include_router(roundtable_router)
+    application.include_router(story_router)
     application.include_router(workflow_router)
     application.include_router(tasks_router)
     application.include_router(workflow_node_control_router)

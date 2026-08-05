@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo } from "react";
-import { MessageSquare, LayoutDashboard, GitBranch, Users, Layers, Settings, BookOpen, Wifi, WifiOff, FileText, Workflow, Clock, Boxes, Loader2, type LucideIcon } from "lucide-react";
+import { MessageSquare, LayoutDashboard, GitBranch, Users, Clapperboard, Layers, Settings, BookOpen, Wifi, WifiOff, FileText, Workflow, Clock, Boxes, Loader2, type LucideIcon } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { CORE_TAB_IDS, isCoreTabId, type CoreTabId } from "@/core-tabs";
@@ -15,6 +15,7 @@ const ChatPage = lazy(() => import("./pages/ChatPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const GraphPage = lazy(() => import("./pages/GraphPage"));
 const RoundtablePage = lazy(() => import("./pages/RoundtablePage"));
+const StoryMachinePage = lazy(() => import("./pages/StoryMachinePage"));
 const OrchestrationPage = lazy(() => import("./pages/OrchestrationPage"));
 const WorkflowPage = lazy(() => import("./pages/WorkflowPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
@@ -37,6 +38,7 @@ const CORE_TAB_METADATA: Record<CoreTabId, Omit<TabConfig, "value">> = {
   dashboard: { icon: LayoutDashboard, label: "看板", activeClass: "data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400" },
   graph: { icon: GitBranch, label: "图谱", activeClass: "data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400" },
   roundtable: { icon: Users, label: "圆桌", activeClass: "data-[state=active]:bg-green-500/20 data-[state=active]:text-green-400" },
+  story: { icon: Clapperboard, label: "故事机器", activeClass: "data-[state=active]:bg-rose-500/20 data-[state=active]:text-rose-400" },
   orchestration: { icon: Layers, label: "编排", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
   workflow: { icon: Workflow, label: "工作流", activeClass: "data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400" },
   cron: { icon: Clock, label: "定时", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
@@ -58,6 +60,7 @@ const CORE_PAGE_MAP: Record<CoreTabId, React.ComponentType> = {
   dashboard: DashboardPage,
   graph: GraphPage,
   roundtable: RoundtablePage,
+  story: StoryMachinePage,
   orchestration: OrchestrationPage,
   workflow: WorkflowPage,
   cron: CronPage,
