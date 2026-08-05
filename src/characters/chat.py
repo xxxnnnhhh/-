@@ -25,12 +25,14 @@ from src.characters.prompts import (
     build_character_system_prompt,
     build_correction_messages,
 )
+from src.characters.websearch import web_search
 from src.core.llm_client import create_llm
 
 logger = logging.getLogger("characters.chat")
 
-MAX_CHAT_HISTORY = 30
+MAX_CHAT_HISTORY = 500          # 完整保留对话记录（上下文只取最近若干条）
 MAX_HISTORY_ENTRY = 800  # 历史每条最多保留的字数，防止上下文膨胀
+MAX_CONTINUATION = 4            # 长文输出最多续写次数
 
 CHAT_EXTRA = (
     "\n\n# 单聊规则（重要）\n"
@@ -39,6 +41,13 @@ CHAT_EXTRA = (
     "和【重大事件】回答，细节要和他一起经历的剧情一致；记不清就承认记不清，绝不能编造没发生过的事。\n"
     "• 你是一个随着经历不断成长的人：你记得自己演过什么、经历过什么，这些塑造了现在的你。\n"
     "• 依然按【情绪】【内心】【表情】【动作】【台词】的格式输出。"
+)
+
+SEARCH_EXTRA = (
+    "\n\n# 联网资料（可引用，但别当成亲身经历）\n"
+    "{search_results}"
+    "\n你可以引用上面的最新资料来回答，但依然保持你的语气、立场和人设；"
+    "不要把搜索资料说成你自己亲身经历的事。"
 )
 
 
@@ -55,7 +64,11 @@ def _format_history(history: list[dict]) -> list:
     return messages
 
 
-async def run_chat(character: Character, user_message: str) -> dict:
+async def run_chat(
+    character: Character,
+    user_message: str,
+    search: bool = False,
+) -> dict:
     """执行一轮单聊。返回 {reply, state, log_path}。"""
     context_text = user_message[:MAX_HISTORY_ENTRY]
     if character.chat_history:
@@ -74,9 +87,18 @@ async def run_chat(character: Character, user_message: str) -> dict:
     layer = behavior_layer(ratios["id"])
     depth = thinking_depth(ratios, stakes=0.6)
 
-    system = SystemMessage(
-        content=build_character_system_prompt(character, layer, depth, ratios) + CHAT_EXTRA
+    system_content = (
+        build_character_system_prompt(character, layer, depth, ratios) + CHAT_EXTRA
     )
+    if search:
+        results = await web_search(user_message)
+        if results:
+            search_text = "\n".join(
+                f"- {r['title']}：{r['snippet'][:300] or '（无摘要）'}（{r['url']}）"
+                for r in results
+            )
+            system_content += SEARCH_EXTRA.format(search_results=search_text)
+    system = SystemMessage(content=system_content)
     messages = [system] + _format_history(character.chat_history)
     messages.append(HumanMessage(content=user_message))
 
@@ -84,9 +106,26 @@ async def run_chat(character: Character, user_message: str) -> dict:
         model_override=character.model_name,
         model_params={"temperature": character.temperature},
         streaming=False,
+        max_tokens=8192,  # 支持长文输出
     )
-    response = await llm.ainvoke(messages)
-    content = (response.content or "") if response else ""
+    # 长文输出：若被长度截断则自动续写，最多 MAX_CONTINUATION 次
+    full_text = ""
+    for _ in range(MAX_CONTINUATION):
+        response = await llm.ainvoke(messages)
+        chunk = (response.content or "") if response else ""
+        full_text += chunk
+        finish_reason = (
+            (response.response_metadata or {}).get("finish_reason")
+            if response else None
+        )
+        if finish_reason != "length" or not chunk:
+            break
+        messages = messages + [
+            HumanMessage(
+                content="（请继续，从刚才中断的地方接着写，不要重复已写内容。）"
+            )
+        ]
+    content = full_text
     parsed = parse_turn(content)
 
     # 规则过滤
@@ -155,3 +194,57 @@ async def run_chat(character: Character, user_message: str) -> dict:
         },
         "log_path": log_path,
     }
+
+
+def build_chat_document(character: Character) -> str:
+    """把完整对话历史生成结构化 Markdown，供其他 AI 直接读取。"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()[:16].replace("T", " ")
+    desc = character.ratio_descriptions or {}
+    lines = [
+        f"# 与 {character.name} 的对话记录",
+        "",
+        f"导出时间：{now}",
+        "",
+        "## 角色档案",
+        (
+            f"- 三我占比：本我 {character.base_ratio.get('id', 0)} / "
+            f"自我 {character.base_ratio.get('ego', 0)} / "
+            f"超我 {character.base_ratio.get('superego', 0)}"
+        ),
+        f"- 本我：{desc.get('id') or '（未填写）'}",
+        f"- 自我：{desc.get('ego') or '（未填写）'}",
+        f"- 超我：{desc.get('superego') or '（未填写）'}",
+    ]
+    if character.traits:
+        lines.append("- 特质：" + "、".join(t.name for t in character.traits))
+    if character.events:
+        lines.append("- 重大事件：" + "；".join(e.title for e in character.events))
+    lines.append("")
+    lines.append("## 对话记录")
+    lines.append("")
+    for item in character.chat_history:
+        ts = (item.get("timestamp") or "")[:16].replace("T", " ")
+        user = str(item.get("user", ""))
+        assistant = str(item.get("assistant", ""))
+        lines.append(f"[{ts}] 用户：{user}")
+        lines.append("")
+        lines.append(f"[{ts}] {character.name}：「{assistant}」")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def export_chat_document(character: Character) -> dict:
+    """导出聊天文档到 E 盘，返回 {markdown, path}。"""
+    from src.characters.logs import LOG_DIR, _safe_name
+
+    doc = build_chat_document(character)
+    path = LOG_DIR / f"{_safe_name(character.name)}-对话记录.md"
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(doc, encoding="utf-8")
+        return {"markdown": doc, "path": str(path)}
+    except OSError as e:
+        logger.error(f"导出对话文档失败 {path}: {e}")
+        return {"markdown": doc, "path": ""}

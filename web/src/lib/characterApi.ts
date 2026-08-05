@@ -73,6 +73,12 @@ export interface ChatResult {
   log_path: string;
 }
 
+export interface ChatExportResult {
+  success: boolean;
+  markdown: string;
+  path: string;
+}
+
 export const fetchCharacters = () =>
   request<{ characters: Character[]; total: number }>("/characters");
 
@@ -90,10 +96,15 @@ export const clearCharacterMemory = (id: string) =>
     method: "POST",
   });
 
-export const chatCharacter = (id: string, message: string) =>
+export const chatCharacter = (id: string, message: string, search = false) =>
   request<ChatResult>(`/characters/${id}/chat`, {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, search }),
+  });
+
+export const exportCharacterChat = (id: string) =>
+  request<ChatExportResult>(`/characters/${id}/chat/export`, {
+    method: "POST",
   });
 
 export const openCharacterLog = (id: string) =>

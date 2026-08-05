@@ -52,6 +52,7 @@ class ChatRequest(BaseModel):
         max_length=4000,
         description="对话内容（最长 4000 字）",
     )
+    search: bool = Field(default=False, description="是否联网搜索最新资料")
 
 
 def _with_log_path(character: dict) -> dict:
@@ -105,7 +106,18 @@ async def chat_with_character(character_id: str, body: ChatRequest):
     character = get_character_manager().get(character_id)
     if not character:
         raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
-    result = await run_chat(character, body.message)
+    result = await run_chat(character, body.message, search=body.search)
+    return {"success": True, **result}
+
+
+@router.post("/{character_id}/chat/export")
+async def export_chat(character_id: str):
+    from src.characters.chat import export_chat_document
+
+    character = get_character_manager().get(character_id)
+    if not character:
+        raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
+    result = export_chat_document(character)
     return {"success": True, **result}
 
 

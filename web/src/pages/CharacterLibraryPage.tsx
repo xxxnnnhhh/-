@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { BookUser, Eraser, FolderOpen, MessageCircle, Plus, Save, Trash2, X } from "lucide-react";
+import { BookUser, Download, Eraser, FolderOpen, Globe, MessageCircle, Plus, Save, Trash2, X } from "lucide-react";
 import {
   ChatResult,
   Character,
@@ -8,6 +8,7 @@ import {
   chatCharacter,
   clearCharacterMemory,
   deleteCharacter,
+  exportCharacterChat,
   fetchCharacters,
   openCharacterLog,
   saveCharacter,
@@ -29,10 +30,20 @@ function ChatModal({ character, onClose }: {
   character: Character;
   onClose: () => void;
 }) {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  // 保留历史对话：重新打开时直接显示之前的聊天记录
+  const [messages, setMessages] = useState<ChatMsg[]>(() =>
+    (character.chat_history ?? [])
+      .map((h) => [
+        { role: "user", text: h.user } as ChatMsg,
+        { role: "char", text: h.assistant } as ChatMsg,
+      ])
+      .flat()
+  );
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<ChatResult["state"] | null>(null);
+  const [searchOn, setSearchOn] = useState(false);
+  const [exportedPath, setExportedPath] = useState<string | null>(null);
 
   const send = async () => {
     const msg = input.trim();
@@ -48,7 +59,7 @@ function ChatModal({ character, onClose }: {
     setMessages((m) => [...m, { role: "user", text: msg }]);
     setBusy(true);
     try {
-      const res = await chatCharacter(character.character_id, msg);
+      const res = await chatCharacter(character.character_id, msg, searchOn);
       setMessages((m) => [
         ...m,
         {
@@ -67,6 +78,24 @@ function ChatModal({ character, onClose }: {
       ]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const doExport = async () => {
+    try {
+      const res = await exportCharacterChat(character.character_id);
+      setExportedPath(res.path || "（导出失败）");
+      if (res.markdown) {
+        const blob = new Blob([res.markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${character.name}-对话记录.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      setExportedPath("（导出失败）");
     }
   };
 
@@ -93,20 +122,47 @@ function ChatModal({ character, onClose }: {
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-500 hover:text-slate-300"
-            aria-label="关闭对话"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSearchOn((v) => !v)}
+              title="联网搜索最新资料"
+              className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+                searchOn
+                  ? "border-cyan-500/70 bg-cyan-500/15 text-cyan-300"
+                  : "border-slate-700 bg-slate-800 text-slate-400"
+              }`}
+            >
+              <Globe size={11} /> {searchOn ? "联网中" : "联网"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void doExport()}
+              title="导出对话文档（Markdown，其他 AI 可直接读取）"
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-amber-300"
+            >
+              <Download size={11} /> 导出
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-500 hover:text-slate-300"
+              aria-label="关闭对话"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           <div className="text-[10px] text-slate-500 text-center">
             他记得自己演过的故事——问问他经历过的细节。
           </div>
+          {exportedPath && (
+            <div className="text-[10px] text-slate-500 text-center font-mono break-all">
+              已导出：{exportedPath}
+            </div>
+          )}
           {messages.map((m, i) =>
             m.role === "user" ? (
               <div key={i} className="flex justify-end">
