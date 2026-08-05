@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "description": "Rules 配置",
+  "groups": [
+    {
+      "id": "default",
+      "name": "默认规则组",
+      "description": "默认可见的 Rules"
+    }
+  ],
+  "rule_configs": {
+    "code-review-standards": {
+      "enabled": true,
+      "workflow_only": false
+    },
+    "no-destructive-operations": {
+      "enabled": true,
+      "workflow_only": false
+    }
+  },
+  "rules": {
+    "code-review-standards": {
+      "agent_types": [],
+      "group_ids": [
+        "default"
+      ]
+    },
+    "no-destructive-operations": {
+      "agent_types": [],
+      "group_ids": [
+        "default"
+      ]
+    }
+  },
+  "last_updated": "2026-08-05T07:02:03.543310+00:00"
+}
