@@ -125,26 +125,6 @@ function ChatModal({ character, onClose }: {
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setSearchOn((v) => !v)}
-              title="联网搜索最新资料"
-              className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
-                searchOn
-                  ? "border-cyan-500/70 bg-cyan-500/15 text-cyan-300"
-                  : "border-slate-700 bg-slate-800 text-slate-400"
-              }`}
-            >
-              <Globe size={11} /> {searchOn ? "联网中" : "联网"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void doExport()}
-              title="导出对话文档（Markdown，其他 AI 可直接读取）"
-              className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-amber-300"
-            >
-              <Download size={11} /> 导出
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="text-slate-500 hover:text-slate-300"
               aria-label="关闭对话"
@@ -210,7 +190,29 @@ function ChatModal({ character, onClose }: {
             className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60 resize-none whitespace-pre-wrap"
           />
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500">{input.length}/4000</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSearchOn((v) => !v)}
+                title="联网搜索最新资料"
+                className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+                  searchOn
+                    ? "border-cyan-500/70 bg-cyan-500/15 text-cyan-300"
+                    : "border-slate-700 bg-slate-800 text-slate-400"
+                }`}
+              >
+                <Globe size={11} /> {searchOn ? "联网中" : "联网"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void doExport()}
+                title="导出对话文档（Markdown，其他 AI 可直接读取）"
+                className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-amber-300"
+              >
+                <Download size={11} /> 导出
+              </button>
+              <span className="text-[10px] text-slate-500">{input.length}/4000</span>
+            </div>
             <button
               type="button"
               onClick={() => void send()}
