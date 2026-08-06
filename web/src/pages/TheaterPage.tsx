@@ -395,9 +395,22 @@ export default function TheaterPage() {
               {/* 演出消息流 */}
               <div className="flex-1 space-y-3">
                 {performMsgs.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-xs p-8">
+                  <div className="rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-3 text-slate-600 text-xs p-8">
                     {session.pre_read_done
-                      ? "已预读取 ✓ · 点「▶ 演出下一轮」开始（AI 实时生成）"
+                      ? (
+                        <>
+                          <span className="text-emerald-400">已预读取 ✓ 可以开始演出了</span>
+                          <button
+                            type="button"
+                            onClick={() => void playRound()}
+                            disabled={performing}
+                            className="px-6 py-3 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-40 cursor-pointer inline-flex items-center gap-2"
+                          >
+                            <Play size={16} /> {performing ? "演出中…（AI 生成中）" : "▶ 开始演出"}
+                          </button>
+                          <span className="text-slate-500">AI 实时生成：旁白 + 角色四通道（每轮约 15-30 秒）</span>
+                        </>
+                      )
                       : "完成预读取后开始演出"}
                   </div>
                 )}

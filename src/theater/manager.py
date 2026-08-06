@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -310,45 +311,22 @@ class TheaterManager:
 
         record.append(f"【旁白】{narrator_text}")
 
-        # ---------- 2. 各角色四通道发言 ----------
-        turns = []
+        # ---------- 2. 各角色四通道发言（并行生成，提速） ----------
         other_names = [c.name for c in chars]
-        for c in chars:
-            emotion_note = f"当前情绪：{c.emotion_state or '平静'}，压力 {c.pressure}"
-            stats_note = "；".join(f"{k}{v}" for k, v in c.stats.items())
-            eq_note = "、".join(
-                f"{e.get('name','')}({e.get('effect','')})" for e in c.equipment
-            ) or "无"
-            skills_note = "、".join(c.skill_ids) or "无"
-            char_sys = (
-                f"你是小说角色「{c.name}」。"
-                f"类型：{'/'.join(c.types) or '通用'}。"
-                f"性格：三我占比 {c.base_ratio}，特质：{', '.join(t.name for t in c.traits) or '无'}。"
-                f"写作风格（SKILL）：{skills_note}——按风格控制你的讲话时机与方式。"
-                f"{emotion_note}，身体素质：{stats_note}，装备：{eq_note}。"
-                "你的话必须符合人设与世界观，情绪影响措辞与动作。"
+        turn_results = await asyncio.gather(*[
+            self._gen_char_turn(
+                c, world_ctx, session, is_battle, record, other_names,
             )
-            char_user = (
-                f"{world_ctx}\n\n场景：{session.scene}\n\n最近的剧情：\n"
-                + ("\n".join(str(x) for x in record[-8:]) or "（开场）")
-                + f"\n\n轮到 {c.name} 发言。场上还有：{'、'.join(n for n in other_names if n != c.name)}。"
-                + ("\n\n这是战斗场景，你的动作可以是攻击/防御/闪避，但要具体、像小说。"
-                   if is_battle else "")
-                + "\n请严格按 JSON 输出：{\"thinking\":\"内心想法\",\"expression\":\"表情\",\"action\":\"动作\",\"speech\":\"台词\"}"
-            )
-            try:
-                resp = await llm.ainvoke([
-                    SystemMessage(content=char_sys),
-                    HumanMessage(content=char_user),
-                ])
-                turn = self._parse_turn(str(resp.content))
-            except Exception as e:
-                logger.error(f"角色 {c.name} 发言失败: {e}")
+            for c in chars
+        ], return_exceptions=True)
+        turns = []
+        for c, res in zip(chars, turn_results):
+            if isinstance(res, Exception):
+                logger.error(f"角色 {c.name} 发言失败: {res}")
                 turn = {"thinking": "", "expression": "（沉默）", "action": "没有动作",
                         "speech": "「……」"}
-            turn["character_id"] = c.character_id
-            turn["name"] = c.name
-            turn["emotion"] = dict(c.emotion_state or {})
+            else:
+                turn = res
             turns.append(turn)
             record.append(
                 f"{c.name}（思考：{turn['thinking']}）表情：{turn['expression']}；"
@@ -368,6 +346,46 @@ class TheaterManager:
             "battle_ratio": session.battle_ratio,
             "session": session.to_dict(),
         }
+
+    async def _gen_char_turn(
+        self, c, world_ctx, session, is_battle, record, other_names,
+    ) -> dict:
+        """生成单个角色的四通道发言（可并行）。"""
+        from src.core.llm_client import create_llm
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        emotion_note = f"当前情绪：{c.emotion_state or '平静'}，压力 {c.pressure}"
+        stats_note = "；".join(f"{k}{v}" for k, v in c.stats.items())
+        eq_note = "、".join(
+            f"{e.get('name','')}({e.get('effect','')})" for e in c.equipment
+        ) or "无"
+        skills_note = "、".join(c.skill_ids) or "无"
+        char_sys = (
+            f"你是小说角色「{c.name}」。"
+            f"类型：{'/'.join(c.types) or '通用'}。"
+            f"性格：三我占比 {c.base_ratio}，特质：{', '.join(t.name for t in c.traits) or '无'}。"
+            f"写作风格（SKILL）：{skills_note}——按风格控制你的讲话时机与方式。"
+            f"{emotion_note}，身体素质：{stats_note}，装备：{eq_note}。"
+            "你的话必须符合人设与世界观，情绪影响措辞与动作。"
+        )
+        char_user = (
+            f"{world_ctx}\n\n场景：{session.scene}\n\n最近的剧情：\n"
+            + ("\n".join(str(x) for x in record[-8:]) or "（开场）")
+            + f"\n\n轮到 {c.name} 发言。场上还有：{'、'.join(n for n in other_names if n != c.name)}。"
+            + ("\n\n这是战斗场景，你的动作可以是攻击/防御/闪避，但要具体、像小说。"
+               if is_battle else "")
+            + "\n请严格按 JSON 输出：{\"thinking\":\"内心想法\",\"expression\":\"表情\",\"action\":\"动作\",\"speech\":\"台词\"}"
+        )
+        llm = create_llm(model_params={"temperature": 0.8}, streaming=False)
+        resp = await llm.ainvoke([
+            SystemMessage(content=char_sys),
+            HumanMessage(content=char_user),
+        ])
+        turn = self._parse_turn(str(resp.content))
+        turn["character_id"] = c.character_id
+        turn["name"] = c.name
+        turn["emotion"] = dict(c.emotion_state or {})
+        return turn
 
 
 _manager: TheaterManager | None = None
