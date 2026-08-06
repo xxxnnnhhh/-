@@ -241,6 +241,34 @@ export default function NodeMessageDrawer({
           </div>
         </div>
       )}
+
+      {/* 产物文件（工作流保存输出的位置） */}
+      <ArtifactFileBanner nodeState={nodeState} />
+    </div>
+  );
+}
+
+
+// ============ 产物文件展示 ============
+
+function ArtifactFileBanner({ nodeState }: { nodeState?: NodeExecutionInfo }) {
+  const outputs = nodeState?.outputs;
+  const file = outputs && typeof outputs === "object"
+    ? (outputs as Record<string, unknown>)._output_file
+    : null;
+  if (!file) return null;
+  const fileStr = String(file);
+  return (
+    <div className="shrink-0 border-t border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+      <div className="flex items-start gap-2">
+        <CheckCircle size={14} className="mt-0.5 shrink-0 text-emerald-400" aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-emerald-300">输出已保存到文件</p>
+          <p className="mt-0.5 font-mono text-[11px] text-emerald-200/80 break-all" title={fileStr}>
+            {fileStr}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
