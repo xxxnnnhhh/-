@@ -307,28 +307,58 @@ def _parse_assistant_output(text: str) -> dict:
         except json.JSONDecodeError:
             mixed = _extract_action_from_mixed(cleaned)
             if mixed is not None:
-                reply = _strip_action_text(cleaned)
-                return {"reply": reply or "（已识别动作）", "action": mixed}
+                validated = _validate_action(mixed)
+                if validated is not None:
+                    reply = _strip_action_text(cleaned)
+                    return {"reply": reply or "（已识别动作）", "action": validated}
             return {"reply": cleaned, "action": None}
     if not isinstance(data, dict):
         mixed = _extract_action_from_mixed(cleaned)
         if mixed is not None:
-            return {"reply": _strip_action_text(cleaned) or "（已识别动作）", "action": mixed}
+            validated = _validate_action(mixed)
+            if validated is not None:
+                return {"reply": _strip_action_text(cleaned) or "（已识别动作）", "action": validated}
         return {"reply": cleaned, "action": None}
     reply = str(data.get("reply") or data.get("message") or "").strip()
     action = data.get("action")
     if action is None:
         mixed = _extract_action_from_mixed(cleaned)
         if mixed is not None:
-            return {"reply": reply or _strip_action_text(cleaned) or "（已识别动作）", "action": mixed}
+            validated = _validate_action(mixed)
+            if validated is not None:
+                return {"reply": reply or _strip_action_text(cleaned) or "（已识别动作）", "action": validated}
         return {"reply": reply or cleaned, "action": None}
     if not isinstance(action, dict):
         return {"reply": reply or cleaned, "action": None}
-    return {"reply": reply or cleaned, "action": action}
+    return {"reply": reply or cleaned, "action": _validate_action(action)}
 
 
 _ACTION_JSON_RE = re.compile(r'\{[^{}]*"operation"\s*:\s*"[a-z_]+"[^{}]*\}')
 _KNOWN_OPS = ("run_pipeline", "describe_workflows", "run_step", "chapter_body_update", "workflow_update_node")
+
+_ACTION_REQUIRED_ARGS = {
+    "run_step": ["step_key"],
+    "chapter_body_update": ["chapter_number", "body"],
+    "workflow_update_node": ["workflow_id", "node_id", "field", "new_value"],
+    "run_pipeline": [],
+    "describe_workflows": [],
+}
+
+
+def _validate_action(action) -> dict | None:
+    """校验动作完整性：缺必要参数或未知操作一律丢弃，避免"缺少 step_key"类报错。"""
+    if not isinstance(action, dict) or not action.get("operation"):
+        return None
+    op = str(action.get("operation", "")).strip()
+    if op not in _ACTION_REQUIRED_ARGS:
+        return None
+    args = action.get("arguments") or {}
+    if not isinstance(args, dict):
+        args = {}
+    missing = [k for k in _ACTION_REQUIRED_ARGS[op] if not str(args.get(k, "")).strip()]
+    if missing:
+        return None
+    return {"operation": op, "arguments": args}
 
 
 def _extract_action_from_mixed(text: str) -> dict | None:
@@ -373,7 +403,9 @@ def _extract_action_from_mixed(text: str) -> dict | None:
                 km = re.search(pattern, rest)
                 if km:
                     args[key] = km.group(1)
-        return {"operation": op_name, "arguments": args}
+        action = {"operation": op_name, "arguments": args}
+        # 缺必要参数的动作不返回，避免制造"缺少 step_key"
+        return action if _validate_action(action) is not None else None
     return None
 
 
@@ -558,7 +590,12 @@ async def diagnose(project, model_override: str | None = None) -> dict:
         logger.exception("总大脑诊断失败")
         return {"diagnosis": f"（诊断调用失败：{exc}）", "actions": []}
     parsed = _parse_diagnose_output(text)
-    return {"diagnosis": parsed["diagnosis"] or "（模型未给出诊断）", "actions": parsed["actions"]}
+    valid_actions = []
+    for a in parsed["actions"]:
+        v = _validate_action(a)
+        if v is not None:
+            valid_actions.append(v)
+    return {"diagnosis": parsed["diagnosis"] or "（模型未给出诊断）", "actions": valid_actions}
 
 
 _NODE_EDIT_FIELDS = {"first_message", "system_prompt_template", "label", "model_override"}

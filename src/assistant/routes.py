@@ -69,7 +69,7 @@ async def confirm_action(project_id: str, body: ConfirmActionRequest, request: R
     elif op == "run_step":
         step_key = str(args.get("step_key", "")).strip()
         if not step_key:
-            raise HTTPException(status_code=400, detail="缺少 step_key")
+            raise HTTPException(status_code=400, detail="run_step 动作缺少必要参数 step_key（助手提案不完整，请重新让助手提案）")
         runner = request.app.state.novel_pipeline_runner
         result = runner.start_single(project, step_key)
         if not result.get("success"):
