@@ -247,6 +247,8 @@ class NovelPipelineRunner:
             raise RuntimeError(started.get("message", "任务启动失败"))
 
         while True:
+            # 等引擎写盘窗口过去再读，避免 Windows 文件占用导致引擎保存失败
+            await asyncio.sleep(0.5)
             data = self._manager.get_task_with_definition(step.workflow_id, task_id)
             if data is None:
                 # 引擎原子写盘时偶发瞬时不可读，重试几次再判定丢失

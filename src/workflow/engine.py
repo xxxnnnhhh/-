@@ -366,20 +366,39 @@ class WorkflowEngine(WorkflowFlowMixin, WorkflowLoopMixin):
         每个线程写入自己的独占 .tmp 文件，再原子替换目标文件。
         """
         from src.config import WORKFLOWS_DIR
+        import time
         import uuid
         tasks_dir = WORKFLOWS_DIR / workflow_id / "tasks"
         tasks_dir.mkdir(parents=True, exist_ok=True)
         task_file = tasks_dir / f"{task_id}.json"
-        tmp_file = tasks_dir / f"{task_id}.{uuid.uuid4().hex[:8]}.tmp"
-        try:
-            tmp_file.write_text(
-                json.dumps(task_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            tmp_file.replace(task_file)
-        except (IOError, OSError):
-            logger.exception(f"任务状态持久化失败: {task_file}")
-            raise
+        # Windows 上其他进程/线程短暂读取任务文件时，os.replace 会因文件被占用
+        # 报 WinError 5（拒绝访问）。这是瞬时竞态：重试几次即可，不应导致任务失败。
+        last_exc: Exception | None = None
+        for attempt in range(6):
+            tmp_file = tasks_dir / f"{task_id}.{uuid.uuid4().hex[:8]}.tmp"
+            try:
+                tmp_file.write_text(
+                    json.dumps(task_data, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                tmp_file.replace(task_file)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                time.sleep(0.3 * (attempt + 1))
+                try:
+                    tmp_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            except (IOError, OSError):
+                logger.exception(f"任务状态持久化失败: {task_file}")
+                raise
+        logger.error(
+            "任务状态持久化失败（重试后仍被占用）: %s: %s",
+            task_file,
+            last_exc,
+        )
+        raise last_exc or RuntimeError(f"任务状态持久化失败: {task_file}")
 
     async def _save_task_state(self, workflow_id: str, task: WorkflowTask):
         """按任务串行持久化不可变快照，避免并行分支发生旧写覆盖。"""
