@@ -73,6 +73,8 @@ export default function TheaterPage() {
   const [performMsgs, setPerformMsgs] = useState<PerformMsg[]>([]);
   const [performing, setPerforming] = useState(false);
   const [performRoundNum, setPerformRoundNum] = useState(0);
+  const [maxRounds, setMaxRounds] = useState(6);
+  const playingRef = useRef(false);
   const [directorText, setDirectorText] = useState("");
   const [worldview, setWorldview] = useState("两界分层；权柄总量守恒；禁开天位权柄。");
   const [newWorldName, setNewWorldName] = useState("");
@@ -210,11 +212,42 @@ export default function TheaterPage() {
           ]);
         }
       }
+      // 自动连播到目标轮次（未暂停时）
+      if (playingRef.current && res.round < maxRounds) {
+        setTimeout(() => void playRound(), 600);
+      } else {
+        playingRef.current = false;
+      }
     } catch {
       setPerformMsgs((prev) => [...prev, { kind: "narrator", narrator: "（这一轮没有接住，稍后再试）", round: performRoundNum + 1 }]);
+      playingRef.current = false;
     } finally {
       setPerforming(false);
     }
+  };
+
+  const startPlay = () => {
+    if (!session) return;
+    playingRef.current = true;
+    void playRound();
+  };
+
+  const pauseScene = () => {
+    playingRef.current = false;
+  };
+
+  const exportScene = () => {
+    const lines = performMsgs.map((m) => {
+      if (m.kind === "narrator") return `【旁白】${m.narrator}`;
+      if (m.kind === "battle") return `【战斗】${(m.meta || []).join("；")}`;
+      const t = m.turn!;
+      return `${t.name}：${t.speech}${t.thinking ? `（思考：${t.thinking}）` : ""}${t.expression ? `（表情：${t.expression}）` : ""}${t.action ? `（动作：${t.action}）` : ""}`;
+    });
+    const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "剧场演出记录.txt";
+    a.click();
   };
 
   const handleDirector = async () => {
@@ -331,14 +364,50 @@ export default function TheaterPage() {
           <button type="button" onClick={startSession} className="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 cursor-pointer">
             <Plus size={14} className="inline mr-1" /> 创建剧场会话
           </button>
+
+          {/* 控制：开演 / 暂停 / 注入 / 导出 */}
           <button
             type="button"
-            onClick={() => void playRound()}
+            onClick={startPlay}
             disabled={!session || performing}
-            className="w-full px-3 py-2 mt-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-40 cursor-pointer"
+            className="w-full px-3 py-2.5 mt-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-40 cursor-pointer"
           >
-            <Play size={14} className="inline mr-1" /> {performing ? "演出中…" : "▶ 演出下一轮"}
+            <Play size={15} className="inline mr-1" /> {performing ? "演出中…（AI 生成中）" : "▶ 开演"}
           </button>
+          <div className="grid grid-cols-3 gap-1.5 mt-2">
+            <button
+              type="button"
+              onClick={pauseScene}
+              disabled={!playingRef.current}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            >
+              暂停
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDirector()}
+              disabled={!session}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-amber-300 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            >
+              注入
+            </button>
+            <button
+              type="button"
+              onClick={exportScene}
+              disabled={performMsgs.length === 0}
+              className="px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+            >
+              导出
+            </button>
+          </div>
+          <div className="mt-2">
+            <label className="text-[11px] text-slate-500 block mb-1">轮次：{performRoundNum} / {maxRounds}</label>
+            <input
+              type="range" min={1} max={10} value={maxRounds}
+              onChange={(e) => setMaxRounds(Number(e.target.value))}
+              className="w-full accent-indigo-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -402,7 +471,7 @@ export default function TheaterPage() {
                           <span className="text-emerald-400">已预读取 ✓ 可以开始演出了</span>
                           <button
                             type="button"
-                            onClick={() => void playRound()}
+                            onClick={startPlay}
                             disabled={performing}
                             className="px-6 py-3 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-500 disabled:opacity-40 cursor-pointer inline-flex items-center gap-2"
                           >
@@ -440,16 +509,21 @@ export default function TheaterPage() {
                   }
                   const t = m.turn!;
                   const color = colorOf(t.character_id);
+                  const roleChar = characters.find((c) => c.character_id === t.character_id);
+                  const roleSkills = roleChar?.skill_ids || [];
                   return (
-                    <div key={i} className="max-w-[82%]" style={{ borderLeft: `3px solid ${color.border}`, background: color.bg, borderRadius: 10, padding: "8px 12px" }}>
+                    <div key={i} className="max-w-[82%] break-words" style={{ borderLeft: `3px solid ${color.border}`, background: color.bg, borderRadius: 10, padding: "8px 12px" }}>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-sm font-semibold" style={{ color: color.name }}>{t.name}</span>
+                        {roleSkills.length > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300">Skills：{roleSkills.join("、")}</span>
+                        )}
                         {Object.keys(t.emotion || {}).length > 0 && (
                           <span className="text-[10px] text-slate-500">情绪：{Object.entries(t.emotion).map(([k, v]) => `${k} ${v}`).join("、")}</span>
                         )}
                       </div>
-                      {t.speech && <div className="text-sm text-slate-100 leading-relaxed">{t.speech}</div>}
-                      <div className="flex flex-wrap gap-1.5 mt-2">
+                      {t.speech && <div className="text-sm text-slate-100 leading-relaxed break-words whitespace-pre-wrap">{t.speech}</div>}
+                      <div className="flex flex-wrap gap-1.5 mt-2 break-words">
                         {t.thinking && <span className="chan think">思考：{t.thinking}</span>}
                         {t.expression && <span className="chan face">表情：{t.expression}</span>}
                         {t.action && <span className="chan act">动作：{t.action}</span>}
