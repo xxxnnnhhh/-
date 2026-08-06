@@ -21,6 +21,7 @@ export interface StorySessionDetail {
   scene: Record<string, string>;
   character_ids: string[];
   narrator_enabled: boolean;
+  narrator_model: string | null;
   max_rounds: number;
   status: "waiting" | "discussing" | "paused" | "ended";
   transcript: StoryMessage[];
@@ -36,6 +37,7 @@ export interface StorySessionSummary {
   title: string;
   status: string;
   character_ids: string[];
+  narrator_model: string | null;
   current_round: number;
   max_rounds: number;
   transcript_count: number;
@@ -54,6 +56,7 @@ export const createStory = (data: {
   character_ids: string[];
   max_rounds: number;
   narrator_enabled: boolean;
+  narrator_model: string | null;
 }) =>
   request<{ success: boolean; session: StorySessionSummary }>("/story/sessions", {
     method: "POST",

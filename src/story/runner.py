@@ -160,7 +160,11 @@ class StoryRunner:
             "round": session.current_round,
             "entry_type": "narrator",
         })
-        llm = create_llm(model_params={"temperature": 0.8}, streaming=True)
+        llm = create_llm(
+            model_override=session.narrator_model,
+            model_params={"temperature": 0.8},
+            streaming=True,
+        )
         messages = build_narrator_messages(session)
         content = ""
         try:
@@ -419,6 +423,7 @@ class StoryManager:
         character_ids: list[str],
         max_rounds: int = 8,
         narrator_enabled: bool = True,
+        narrator_model: str | None = None,
     ) -> StorySession:
         valid_ids = [cid for cid in character_ids if cid in self.characters]
         session = StorySession(
@@ -426,6 +431,7 @@ class StoryManager:
             scene=scene,
             character_ids=valid_ids,
             narrator_enabled=narrator_enabled,
+            narrator_model=narrator_model,
             max_rounds=max_rounds,
         )
         self.sessions[session.session_id] = session

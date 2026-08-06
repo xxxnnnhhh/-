@@ -103,6 +103,7 @@ class StorySession:
     scene: dict = field(default_factory=dict)  # location/time/background/mood/opening
     character_ids: list[str] = field(default_factory=list)
     narrator_enabled: bool = True
+    narrator_model: str | None = None
     max_rounds: int = 8
     session_id: str = ""
     status: str = "waiting"  # waiting | discussing | paused | ended
@@ -154,6 +155,7 @@ class StorySession:
             "scene": dict(self.scene),
             "character_ids": list(self.character_ids),
             "narrator_enabled": self.narrator_enabled,
+            "narrator_model": self.narrator_model,
             "current_round": self.current_round,
             "max_rounds": self.max_rounds,
             "transcript_count": len(self.transcript),
@@ -169,6 +171,7 @@ class StorySession:
             "scene": dict(self.scene),
             "character_ids": list(self.character_ids),
             "narrator_enabled": self.narrator_enabled,
+            "narrator_model": self.narrator_model,
             "max_rounds": self.max_rounds,
             "status": self.status,
             "transcript": [m.to_dict() for m in self.transcript],
@@ -185,6 +188,7 @@ class StorySession:
             scene=dict(data.get("scene", {}) or {}),
             character_ids=list(data.get("character_ids", []) or []),
             narrator_enabled=bool(data.get("narrator_enabled", True)),
+            narrator_model=data.get("narrator_model"),
             max_rounds=int(data.get("max_rounds", 8) or 8),
             session_id=data.get("session_id", ""),
             status=data.get("status", "ended"),
@@ -224,4 +228,3 @@ class StorySession:
         except (json.JSONDecodeError, IOError, OSError) as e:
             logger.error(f"加载故事 {session_id} 失败: {e}")
             return None
-

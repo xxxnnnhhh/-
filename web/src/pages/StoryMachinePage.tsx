@@ -9,6 +9,7 @@ import {
   Square,
 } from "lucide-react";
 import { Character, fetchCharacters } from "@/lib/characterApi";
+import EntityModelSelect from "../components/EntityModelSelect";
 import {
   StoryMessage,
   StorySessionDetail,
@@ -137,6 +138,7 @@ function TheaterPanel({
   const [characterIds, setCharacterIds] = useState<string[]>([]);
   const [maxRounds, setMaxRounds] = useState(8);
   const [narrator, setNarrator] = useState(true);
+  const [narratorModel, setNarratorModel] = useState<string | null>(null);
   const [injectText, setInjectText] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -150,6 +152,7 @@ function TheaterPanel({
         character_ids: characterIds,
         max_rounds: maxRounds,
         narrator_enabled: narrator,
+        narrator_model: narratorModel,
       });
       onSessionsChanged();
       onActive(await fetchStoryDetail(res.session.session_id));
@@ -276,6 +279,13 @@ function TheaterPanel({
             {narrator ? "开启" : "关闭"}
           </button>
         </Field>
+        {narrator && (
+          <div className="col-span-2">
+            <Field label="旁白模型（默认 = 跟随全局默认模型）">
+              <EntityModelSelect value={narratorModel} onChange={setNarratorModel} />
+            </Field>
+          </div>
+        )}
       </div>
 
       <button

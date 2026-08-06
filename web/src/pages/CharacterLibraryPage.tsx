@@ -13,6 +13,7 @@ import {
   openCharacterLog,
   saveCharacter,
 } from "@/lib/characterApi";
+import EntityModelSelect from "../components/EntityModelSelect";
 
 const inputCls =
   "w-full bg-slate-800/80 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500/60";
@@ -562,6 +563,13 @@ export default function CharacterLibraryPage() {
               />
             </Field>
           </div>
+
+          <Field label="对话模型（默认 = 跟随全局默认模型；切换后该角色在所有场景（单聊/故事/圆桌）都用此模型）">
+            <EntityModelSelect
+              value={draft.model_name}
+              onChange={(modelId) => setDraft((d) => ({ ...d, model_name: modelId }))}
+            />
+          </Field>
 
           <Field label="三我性格（文本输入：每个框填「占比 + 性格描述」，自动识别并归一化到 100）">
             <RatioTextInputs texts={ratioTexts} onChange={setRatioTexts} />

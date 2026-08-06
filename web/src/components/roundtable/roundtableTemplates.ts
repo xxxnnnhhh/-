@@ -1,10 +1,11 @@
 export interface SeatFormItem {
-  role_name: string;
-  system_prompt: string;
-  temperature: number;
-  is_moderator: boolean;
-  character_id?: string;
-}
+    role_name: string;
+    system_prompt: string;
+    temperature: number;
+    is_moderator: boolean;
+    character_id?: string;
+    model_name?: string | null;
+  }
 
 export const ROUNDTABLE_TEMPLATES = [
   {

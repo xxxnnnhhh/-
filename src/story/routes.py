@@ -25,6 +25,7 @@ class CreateStoryRequest(BaseModel):
     character_ids: list[str] = Field(min_length=1)
     max_rounds: int = Field(default=8, ge=1, le=50)
     narrator_enabled: bool = True
+    narrator_model: str | None = None
 
 
 class InjectRequest(BaseModel):
@@ -49,6 +50,7 @@ async def create_story(body: CreateStoryRequest, request: Request):
         character_ids=body.character_ids,
         max_rounds=body.max_rounds,
         narrator_enabled=body.narrator_enabled,
+        narrator_model=body.narrator_model,
     )
     if not session.character_ids:
         raise HTTPException(status_code=400, detail="所选角色不存在或为空")

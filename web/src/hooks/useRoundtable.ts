@@ -604,11 +604,12 @@ export function useRoundtable() {
 
   // Phase 3: 动态添加席位
   const handleAddSeat = useCallback(async (sessionId: string, seatConfig: {
-    role_name: string;
-    system_prompt?: string;
-    temperature?: number;
-    is_moderator?: boolean;
-  }) => {
+      role_name: string;
+      system_prompt?: string;
+      temperature?: number;
+      is_moderator?: boolean;
+      model_name?: string | null;
+    }) => {
     const result = await addSeatToRoundtable(sessionId, seatConfig);
     // seat 添加通过 WS 事件同步
     return result;

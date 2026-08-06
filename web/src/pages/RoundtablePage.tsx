@@ -6,6 +6,7 @@ import TranscriptMessage from "../components/TranscriptMessage";
 import { getSeatColor } from "../lib/seatColors";
 import SeatCard from "../components/SeatCard";
 import { fetchCharacters, type Character } from "../lib/characterApi";
+import EntityModelSelect from "../components/EntityModelSelect";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -62,8 +63,8 @@ export default function RoundtablePage() {
   const [compressorWindow, setCompressorWindow] = useState(20);
   const [compressorInterval, setCompressorInterval] = useState(3);
   const [seatForms, setSeatForms] = useState<SeatFormItem[]>([
-    { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false },
-    { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false },
+    { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false, model_name: null },
+    { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false, model_name: null },
   ]);
   const [creating, setCreating] = useState(false);
   const [injectContent, setInjectContent] = useState("");
@@ -114,11 +115,12 @@ export default function RoundtablePage() {
       tpl.seats.map((s) => ({
         role_name: s.role_name,
         system_prompt: s.system_prompt,
-        temperature: s.temperature,
-        is_moderator: s.is_moderator || false,
-        character_id: (s as SeatFormItem).character_id,
-      }))
-    );
+          temperature: s.temperature,
+          is_moderator: s.is_moderator || false,
+          character_id: (s as SeatFormItem).character_id,
+          model_name: (s as SeatFormItem).model_name ?? null,
+        }))
+      );
   };
 
   // 添加席位
@@ -126,7 +128,7 @@ export default function RoundtablePage() {
     if (seatForms.length >= 6) return;
     setSeatForms((prev) => [
       ...prev,
-      { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false },
+      { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false, model_name: null },
     ]);
   };
 
@@ -137,7 +139,7 @@ export default function RoundtablePage() {
   };
 
   // 更新席位
-  const updateSeat = (index: number, field: keyof SeatFormItem, value: string | number | boolean | undefined) => {
+  const updateSeat = (index: number, field: keyof SeatFormItem, value: string | number | boolean | null | undefined) => {
     setSeatForms((prev) =>
       prev.map((s, i) => (i === index ? { ...s, [field]: value } : s))
     );
@@ -157,6 +159,7 @@ export default function RoundtablePage() {
         temperature: s.temperature,
         is_moderator: s.is_moderator,
         character_id: s.character_id || undefined,
+        model_name: s.model_name || null,
       })),
       max_rounds: maxRounds,
       strategy: selectedStrategy,
@@ -172,8 +175,8 @@ export default function RoundtablePage() {
       setShowCreate(false);
       setTopic("");
       setSeatForms([
-        { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false },
-        { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false },
+        { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false, model_name: null },
+        { role_name: "", system_prompt: "", temperature: 0.7, is_moderator: false, model_name: null },
       ]);
       setSelectedStrategy("round_robin");
       setCompressorEnabled(false);
@@ -767,7 +770,7 @@ function CreateForm({
   compressorInterval: number;
   setCompressorInterval: (v: number) => void;
   seatForms: SeatFormItem[];
-  updateSeat: (i: number, field: keyof SeatFormItem, value: string | number | boolean | undefined) => void;
+  updateSeat: (i: number, field: keyof SeatFormItem, value: string | number | boolean | null | undefined) => void;
   libraryCharacters: Character[];
   addSeat: () => void;
   removeSeat: (i: number) => void;
@@ -967,9 +970,14 @@ function CreateForm({
                   min={0}
                   max={2}
                   className="w-16 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-400 focus:outline-none focus:border-indigo-500/50 min-h-[44px]"
-                  title="Temperature"
-                />
-                {seatForms.length > 2 && (
+                    title="Temperature"
+                  />
+                  <EntityModelSelect
+                    value={seat.model_name ?? null}
+                    onChange={(modelId) => updateSeat(i, "model_name", modelId ?? null)}
+                    compact
+                  />
+                  {seatForms.length > 2 && (
                   <button
                     type="button"
                     onClick={() => removeSeat(i)}
