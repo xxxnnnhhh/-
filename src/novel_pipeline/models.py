@@ -99,6 +99,9 @@ class NovelProject:
     human_intent: str = ""
     world_intent: str = ""
     writer_type: str = "single"
+    world_id: str = ""                # 关联的剧场世界（建书时自动创建）
+    character_ids: list[str] = field(default_factory=list)   # 关联人物库角色
+    theater_session_ids: list[str] = field(default_factory=list)  # 关联剧场会话
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     status: str = "idle"              # idle/running/completed/failed/stopped
@@ -123,6 +126,9 @@ class NovelProject:
             "human_intent": self.human_intent,
             "world_intent": self.world_intent,
             "writer_type": self.writer_type,
+            "world_id": self.world_id,
+            "character_ids": list(self.character_ids),
+            "theater_session_ids": list(self.theater_session_ids),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status,
@@ -159,6 +165,13 @@ class NovelProject:
             human_intent=data.get("human_intent", ""),
             world_intent=data.get("world_intent", ""),
             writer_type=data.get("writer_type", "single") or "single",
+            world_id=data.get("world_id", "") or "",
+            character_ids=[
+                str(c) for c in (data.get("character_ids") or []) if str(c).strip()
+            ],
+            theater_session_ids=[
+                str(s) for s in (data.get("theater_session_ids") or []) if str(s).strip()
+            ],
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             status=data.get("status", "idle") or "idle",

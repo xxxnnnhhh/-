@@ -18,7 +18,7 @@ const TheaterPage = lazy(() => import("./pages/TheaterPage"));
 const CharacterLibraryPage = lazy(() => import("./pages/CharacterLibraryPage"));
 const OrchestrationPage = lazy(() => import("./pages/OrchestrationPage"));
 const WorkflowPage = lazy(() => import("./pages/WorkflowPage"));
-const NovelPipelinePage = lazy(() => import("./pages/NovelPipelinePage"));
+const BookShelfPage = lazy(() => import("./pages/BookShelfPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const SkillsPage = lazy(() => import("./pages/SkillsPage"));
 const RulesPage = lazy(() => import("./pages/RulesPage"));
@@ -42,7 +42,7 @@ const CORE_TAB_METADATA: Record<CoreTabId, Omit<TabConfig, "value">> = {
   characters: { icon: BookUser, label: "人物库", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
   orchestration: { icon: Layers, label: "编排", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
   workflow: { icon: Workflow, label: "工作流", activeClass: "data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400" },
-  "novel-pipeline": { icon: LibraryBig, label: "小说管线", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
+  bookshelf: { icon: LibraryBig, label: "书架", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
   cron: { icon: Clock, label: "定时", activeClass: "data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400" },
   skills: { icon: BookOpen, label: "Skills", activeClass: "data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-400" },
   rules: { icon: BookOpen, label: "Rules", activeClass: "data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400" },
@@ -65,7 +65,7 @@ const CORE_PAGE_MAP: Record<CoreTabId, React.ComponentType> = {
   characters: CharacterLibraryPage,
   orchestration: OrchestrationPage,
   workflow: WorkflowPage,
-  "novel-pipeline": NovelPipelinePage,
+  bookshelf: BookShelfPage,
   cron: CronPage,
   skills: SkillsPage,
   rules: RulesPage,
