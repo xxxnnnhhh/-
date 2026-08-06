@@ -397,8 +397,8 @@ class SessionManager:
         session = self.get_session(session_id)
         if session is None:
             return {"success": False, "message": f"未找到会话 {session_id}"}
-        if session.session_type != "main" or session.workflow_id:
-            return {"success": False, "message": "仅支持切换交互 Main 会话的模型"}
+        if session.session_type != "main":
+            return {"success": False, "message": "仅支持切换 Main 会话的模型"}
 
         from src.core.model_manager import get_model_manager
         from src.core.llm_client import create_startup_llm
