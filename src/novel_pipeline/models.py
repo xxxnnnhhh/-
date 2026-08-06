@@ -102,6 +102,7 @@ class NovelProject:
     world_id: str = ""                # 关联的剧场世界（建书时自动创建）
     character_ids: list[str] = field(default_factory=list)   # 关联人物库角色
     theater_session_ids: list[str] = field(default_factory=list)  # 关联剧场会话
+    skill_ids: list[str] = field(default_factory=list)        # 挂载的写作风格 Skills
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     status: str = "idle"              # idle/running/completed/failed/stopped
@@ -129,6 +130,7 @@ class NovelProject:
             "world_id": self.world_id,
             "character_ids": list(self.character_ids),
             "theater_session_ids": list(self.theater_session_ids),
+            "skill_ids": list(self.skill_ids),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status,
@@ -171,6 +173,9 @@ class NovelProject:
             ],
             theater_session_ids=[
                 str(s) for s in (data.get("theater_session_ids") or []) if str(s).strip()
+            ],
+            skill_ids=[
+                str(s) for s in (data.get("skill_ids") or []) if str(s).strip()
             ],
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),

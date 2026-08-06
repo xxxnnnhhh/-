@@ -8,7 +8,8 @@ import {
   BookOpenText, Plus, Play, RotateCcw, Square, Download,
   FolderOpen, FileText, ArrowLeft, Loader2, Trash2, CheckCircle2,
   XCircle, Circle, ExternalLink, Sparkles, UserPlus, Theater, BookMarked,
-  Globe2, ListTree, Workflow as WorkflowIcon, LayoutGrid, Users,
+  Globe2, ListTree, Workflow as WorkflowIcon, LayoutGrid, Users, Brain,
+  Send, Check, X, Wand2,
 } from "lucide-react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -41,6 +42,7 @@ interface NovelProject {
   world_id: string;
   character_ids: string[];
   theater_session_ids: string[];
+  skill_ids: string[];
   created_at: string;
   updated_at: string;
   status: "idle" | "running" | "completed" | "failed" | "stopped";
@@ -157,6 +159,14 @@ export default function BookShelfPage() {
   const [textModal, setTextModal] = useState<{ name: string; content: string; path: string; archive: string } | null>(null);
   const [filesOpen, setFilesOpen] = useState(false);
   const [files, setFiles] = useState<{ path: string; size: number }[]>([]);
+  // 助手（总大脑）状态
+  const [asstMsgs, setAsstMsgs] = useState<{ role: string; content: string }[]>([]);
+  const [asstInput, setAsstInput] = useState("");
+  const [asstBusy, setAsstBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ operation: string; arguments: Record<string, unknown>; reply: string } | null>(null);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string; tags: string[] }[]>([]);
+  const [skillDraft, setSkillDraft] = useState<string[]>([]);
 
   const selected = useMemo(
     () => projects.find((p) => p.project_id === selectedId) || null,
@@ -196,6 +206,8 @@ export default function BookShelfPage() {
     if (selectedId) {
       setContent(null);
       fetchContent(selectedId);
+      setAsstMsgs([]);
+      setPendingAction(null);
     } else {
       setContent(null);
     }
@@ -463,6 +475,7 @@ export default function BookShelfPage() {
 
   const TABS = [
     { id: "overview", label: "总览", icon: LayoutGrid },
+    { id: "assistant", label: "助手", icon: Brain },
     { id: "world", label: "世界观", icon: Globe2 },
     { id: "cast", label: "角色", icon: Users },
     { id: "outline", label: "大纲章节", icon: ListTree },
@@ -470,6 +483,206 @@ export default function BookShelfPage() {
     { id: "pipeline", label: "流水线", icon: BookMarked },
     { id: "workflow", label: "工作流", icon: WorkflowIcon },
   ];
+
+  // ==================== 助手（总大脑） ====================
+
+  const sendAssistant = async () => {
+    if (!selected || !asstInput.trim() || asstBusy) return;
+    const userMsg = asstInput.trim();
+    setAsstInput("");
+    setAsstMsgs((prev) => [...prev, { role: "user", content: userMsg }]);
+    setAsstBusy(true);
+    setPendingAction(null);
+    try {
+      const res = await fetch(`/api/assistant/projects/${selected.project_id}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [...asstMsgs, { role: "user", content: userMsg }] }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "助手调用失败");
+      setAsstMsgs((prev) => [...prev, { role: "assistant", content: data.reply || "（无回复）" }]);
+      if (data.action) {
+        setPendingAction({ operation: data.action.operation, arguments: data.action.arguments || {}, reply: data.reply || "" });
+      }
+    } catch (e) {
+      setAsstMsgs((prev) => [...prev, { role: "assistant", content: `（调用失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
+    } finally {
+      setAsstBusy(false);
+    }
+  };
+
+  const confirmAction = async () => {
+    if (!selected || !pendingAction) return;
+    setAsstBusy(true);
+    try {
+      const res = await fetch(`/api/assistant/projects/${selected.project_id}/actions/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operation: pendingAction.operation, arguments: pendingAction.arguments }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "执行失败");
+      showMsg(data.message || "动作已执行");
+      setPendingAction(null);
+      await fetchContent(selected.project_id);
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "执行失败");
+    } finally {
+      setAsstBusy(false);
+    }
+  };
+
+  const openSkillPicker = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/assistant/projects/${selected.project_id}/skills`);
+      const data = await res.json();
+      setAvailableSkills(data.available || []);
+      setSkillDraft([...(data.mounted || []).map((s: { id: string }) => s.id)]);
+      setSkillPickerOpen(true);
+    } catch {
+      showMsg("读取 Skills 失败");
+    }
+  };
+
+  const saveSkills = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/assistant/projects/${selected.project_id}/skills`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill_ids: skillDraft }),
+      });
+      if (!res.ok) throw new Error("保存失败");
+      setSkillPickerOpen(false);
+      showMsg("写作风格已更新，总大脑会按新风格输出");
+      await fetchContent(selected.project_id);
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const renderAssistant = () => {
+    const mountedSkills = content?.project.skill_ids || [];
+    const action = pendingAction;
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        {/* 挂载的 Skills */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500">写作风格：</span>
+          {mountedSkills.length === 0 ? (
+            <span className="text-xs text-slate-600">（未挂载，助手按默认风格输出）</span>
+          ) : (
+            mountedSkills.map((sid) => (
+              <span key={sid} className="rounded bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 text-xs text-pink-300">
+                {sid}
+              </span>
+            ))
+          )}
+          <button
+            type="button"
+            onClick={openSkillPicker}
+            className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+          >
+            <Wand2 size={12} aria-hidden="true" /> 管理风格
+          </button>
+        </div>
+
+        {/* 动作提案卡 */}
+        {action && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+              <Brain size={15} aria-hidden="true" /> 助手提案：{action.operation === "chapter_body_update" ? "写入章节正文" : action.operation === "run_step" ? "运行流水线步骤" : action.operation}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{action.reply}</p>
+            {action.operation === "chapter_body_update" && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <div>目标：第 {Number(String(action.arguments.chapter_number || "1"))} 章</div>
+                <div>原因：{String(action.arguments.reason || "")}</div>
+                <div className="rounded bg-slate-950/60 p-2 mt-1">
+                  <div className="mb-1 text-slate-500">新正文预览（{String(action.arguments.body || "").length} 字）：</div>
+                  <pre className="whitespace-pre-wrap text-slate-200 max-h-48 overflow-y-auto">{String(action.arguments.body || "")}</pre>
+                </div>
+              </div>
+            )}
+            {action.operation === "run_step" && (
+              <div className="mt-1 text-xs text-slate-400">步骤：{String(action.arguments.step_key || "")}</div>
+            )}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                disabled={asstBusy}
+                onClick={confirmAction}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                <Check size={14} aria-hidden="true" /> 确认执行
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingAction(null)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+              >
+                <X size={14} aria-hidden="true" /> 拒绝
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 对话区 */}
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-white/5 bg-slate-900/40 p-4 space-y-3">
+          {asstMsgs.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+              <Brain size={36} className="text-amber-400/60" aria-hidden="true" />
+              <p className="max-w-md text-sm text-slate-500">
+                我是这本书的总大脑。可以问我书的状态、世界观、角色、大纲；
+                也可以让我"写第1章"、"把第2章改得更紧张"——涉及写入的内容会先给你确认。
+              </p>
+              {content?.project.steps.length === 0 && (
+                <p className="text-xs text-slate-600">提示：先在「角色」页加人、在「流水线」页建世界观，我会更了解这本书。</p>
+              )}
+            </div>
+          ) : (
+            asstMsgs.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
+                  m.role === "user" ? "bg-amber-600/20 text-slate-100" : "bg-slate-800/80 text-slate-200"
+                }`}>
+                  {m.content}
+                </div>
+              </div>
+            ))
+          )}
+          {asstBusy && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2 rounded-lg bg-slate-800/80 px-3 py-2 text-sm text-slate-400">
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" /> 总大脑思考中…
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 输入 */}
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            className="flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
+            value={asstInput}
+            onChange={(e) => setAsstInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendAssistant()}
+            placeholder="问书的状态，或让我写/改某一章…"
+          />
+          <button
+            type="button"
+            disabled={asstBusy || !asstInput.trim()}
+            onClick={sendAssistant}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            <Send size={14} aria-hidden="true" /> 发送
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // ==================== 分页内容 ====================
 
@@ -1179,6 +1392,7 @@ export default function BookShelfPage() {
               ) : (
                 <>
                   {tab === "overview" && renderOverview()}
+                  {tab === "assistant" && renderAssistant()}
                   {tab === "world" && renderWorld()}
                   {tab === "cast" && renderCast()}
                   {tab === "outline" && renderOutline()}
@@ -1230,6 +1444,58 @@ export default function BookShelfPage() {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 写作风格 Skills 挂载弹窗 */}
+      {skillPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
+          <div className="flex h-[70vh] w-full max-w-2xl flex-col rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-slate-100">给这本书挂写作风格</h3>
+                <p className="mt-0.5 text-xs text-slate-500">总大脑按挂载的风格写作；也可在「Skills」页增删改这些风格</p>
+              </div>
+              <button type="button" onClick={() => setSkillPickerOpen(false)} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">
+                关闭
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {availableSkills.length === 0 ? (
+                <p className="text-sm text-slate-500">技能库里还没有写作风格技能。去「Skills」页新建，或让我预置几个。</p>
+              ) : (
+                availableSkills.map((s) => {
+                  const on = skillDraft.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSkillDraft((prev) => (on ? prev.filter((x) => x !== s.id) : [...prev, s.id]))}
+                      className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+                        on ? "border-pink-500/40 bg-pink-500/10" : "border-white/5 bg-slate-950/60 hover:bg-slate-900"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${on ? "bg-pink-400" : "bg-slate-600"}`} aria-hidden="true" />
+                        <span className="text-sm text-slate-100">{s.name}</span>
+                        {on && <span className="ml-auto text-xs text-pink-300">已挂载</span>}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{s.description}</p>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-white/10 px-5 py-3 shrink-0">
+              <button
+                type="button"
+                onClick={saveSkills}
+                className="rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm text-white transition-colors"
+              >
+                保存挂载
+              </button>
             </div>
           </div>
         </div>
