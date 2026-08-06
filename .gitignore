@@ -64,3 +64,7 @@ Thumbs.db
 
 # Local Plugin overrides
 config/extension-overrides/
+
+# 脚本本地存档（E盘用户数据，不入库）
+脚本存档/
+story_machine.pid

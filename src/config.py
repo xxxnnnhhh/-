@@ -23,6 +23,9 @@ CONFIG_DIR = Path(get_determinflow_env("CONFIG_DIR", str(BASE_DIR / "config"))).
 SKILLS_DIR = DATA_DIR / "skills"
 RULES_DIR = DATA_DIR / "rules"
 SCRIPT_LIBRARY_DIR = DATA_DIR / "script-library"
+SCRIPT_ARCHIVE_DIR = Path(
+    get_determinflow_env("SCRIPT_ARCHIVE_DIR", str(BASE_DIR / "脚本存档"))
+).expanduser().resolve()
 PLUGINS_DIR = DATA_DIR / "plugins"
 SKILLS_CONFIG_FILE = CONFIG_DIR / "skills_config.json"
 RULES_CONFIG_FILE = CONFIG_DIR / "rules_config.json"
@@ -156,6 +159,7 @@ def ensure_dirs():
     SKILLS_DIR.mkdir(exist_ok=True)
     RULES_DIR.mkdir(exist_ok=True)
     SCRIPT_LIBRARY_DIR.mkdir(exist_ok=True)
+    SCRIPT_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     PLUGINS_DIR.mkdir(exist_ok=True)
     WORKFLOWS_DIR.mkdir(exist_ok=True)
     WORKFLOW_WORKSPACES_DIR.mkdir(exist_ok=True)
@@ -203,6 +207,7 @@ CONFIG_ITEMS: list[dict[str, Any]] = [
     {"key": "CODING_WORKSPACE_COPY_ON_CREATE", "label": "创建子会话时复制 Main Workspace", "group": "coding", "type": "boolean"},
     {"key": "CODING_WORKSPACE_COPY_EXCLUDES", "label": "复制排除目录（逗号分隔）", "group": "coding", "type": "string"},
     {"key": "CODING_WORKSPACE_MAX_SIZE", "label": "Workspace 最大大小（字节）", "group": "coding", "type": "number", "min": 1048576, "max": 1073741824},
+    {"key": "SCRIPT_ARCHIVE_DIR", "label": "脚本存档目录（E盘，中文标注，支持修改位置）", "group": "coding", "type": "string"},
 ]
 
 # 配置项 key 到元数据的快速映射

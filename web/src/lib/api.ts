@@ -912,11 +912,31 @@ export async function getLibraryScriptMeta(group: string, scriptName: string) {
 }
 
 export async function saveLibraryScriptMeta(group: string, scriptName: string, content: string) {
-  return request<{ success: boolean; message: string }>(
-    `/workflows/script-library/${encodeURIComponent(group)}/${encodeURIComponent(scriptName)}/meta`,
-    { method: "PUT", body: JSON.stringify({ content }) }
-  );
-}
+    return request<{ success: boolean; message: string }>(
+      `/workflows/script-library/${encodeURIComponent(group)}/${encodeURIComponent(scriptName)}/meta`,
+      { method: "PUT", body: JSON.stringify({ content }) }
+    );
+  }
+
+export async function listScriptArchives() {
+    return request<{ archives: Array<{ group: string; name: string; path: string; size: number; updated_at: string }> }>(
+      "/workflows/script-library/archive"
+    );
+  }
+
+export async function archiveScript(group: string, scriptName: string) {
+    return request<{ success: boolean; message: string; path: string }>(
+      `/workflows/script-library/archive/${encodeURIComponent(group)}/${encodeURIComponent(scriptName)}`,
+      { method: "POST" }
+    );
+  }
+
+export async function archiveAllScripts() {
+    return request<{ success: boolean; count: number; paths: string[] }>(
+      "/workflows/script-library/archive-all",
+      { method: "POST" }
+    );
+  }
 
 export async function deleteLibraryGroup(group: string) {
   return request<{ success: boolean; message: string }>(

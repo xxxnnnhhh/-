@@ -10,6 +10,7 @@ import logging
 import re
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..config import SESSIONS_DIR, WORKFLOWS_DIR
@@ -841,6 +842,12 @@ async def update_library_script_content(group: str, script_name: str,
     script_dir.mkdir(parents=True, exist_ok=True)
     try:
         script_path.write_text(body.content, encoding="utf-8")
+        # 保存脚本后自动生成本地存档（E 盘，中文标注）
+        try:
+            from src.script_archive import archive_script
+            archive_script(group, script_name)
+        except Exception as ae:
+            logger.warning(f"脚本自动存档失败: {group}/{script_name}: {ae}")
         return {"success": True, "message": f"脚本已保存: {script_path}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存脚本失败: {e}")
@@ -904,6 +911,12 @@ async def update_library_script_meta(group: str, script_name: str,
     meta_path = script_dir / "SCRIPT.md"
     try:
         meta_path.write_text(body.content, encoding="utf-8")
+        # 元信息更新后同步刷新存档
+        try:
+            from src.script_archive import archive_script
+            archive_script(group, script_name)
+        except Exception as ae:
+            logger.warning(f"脚本存档刷新失败: {group}/{script_name}: {ae}")
         return {"success": True, "message": f"元信息已保存: {meta_path}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存元信息失败: {e}")
@@ -925,6 +938,65 @@ async def delete_library_group(group: str, request: Request):
         return {"success": True, "message": f"分组已删除: {group}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"删除分组失败: {e}")
+
+
+# ============================================================
+# 脚本本地存档 API（E 盘，中文标注，可导出）
+# ============================================================
+
+@router.get("/script-library/archive")
+async def list_script_archives(request: Request):
+    """列出所有脚本存档。"""
+    from src.script_archive import list_archives
+    return {"archives": list_archives()}
+
+
+@router.post("/script-library/archive/{group}/{script_name}")
+async def create_script_archive(group: str, script_name: str, request: Request):
+    """手动存档指定脚本。"""
+    if not _SCRIPT_NAME_RE.match(script_name):
+        raise HTTPException(status_code=400, detail=f"脚本名包含非法字符: {script_name}")
+    from src.script_archive import archive_script
+    try:
+        path = archive_script(group, script_name)
+        return {"success": True, "message": f"已存档: {path}", "path": str(path)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"脚本不存在: {group}/{script_name}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"存档失败: {e}")
+
+
+@router.post("/script-library/archive-all")
+async def create_all_archives(request: Request):
+    """为所有脚本生成本地存档。"""
+    from src.script_archive import archive_all
+    paths = archive_all()
+    return {"success": True, "count": len(paths), "paths": [str(p) for p in paths]}
+
+
+@router.get("/script-library/archive/export")
+async def export_script_archive(request: Request, group: str = "", name: str = ""):
+    """导出单个脚本存档（下载 .md 文件）。"""
+    if not group or not name:
+        raise HTTPException(status_code=400, detail="缺少 group 或 name 参数")
+    from src.script_archive import get_archive_path
+    path = get_archive_path(group, name)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"存档不存在: {group}/{name}，请先存档")
+    return FileResponse(str(path), media_type="text/markdown; charset=utf-8",
+                        filename=f"脚本存档-{group}-{name}.md")
+
+
+@router.get("/script-library/archive/export-all")
+async def export_all_archives(request: Request):
+    """导出全部脚本存档（合并为一个 Markdown 文件下载）。"""
+    from src.script_archive import export_all_markdown
+    content = export_all_markdown()
+    import tempfile
+    tmp = Path(tempfile.gettempdir()) / "故事机器-全部脚本存档.md"
+    tmp.write_text(content, encoding="utf-8")
+    return FileResponse(str(tmp), media_type="text/markdown; charset=utf-8",
+                        filename="故事机器-全部脚本存档.md")
 
 
 @tasks_router.get("/tasks")

@@ -6,7 +6,7 @@
  * - 点击脚本：展开内联编辑器（代码 + SCRIPT.md 元信息）
  */
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Folder, FileCode } from "lucide-react";
+import { Plus, Trash2, Folder, FileCode, Download, Archive } from "lucide-react";
 import { CodeEditor } from "../shared";
 import {
   fetchScriptLibraryGroups,
@@ -17,6 +17,8 @@ import {
   getLibraryScriptMeta,
   saveLibraryScriptMeta,
   deleteLibraryGroup,
+  archiveScript,
+  archiveAllScripts,
 } from "../../lib/api";
 import type { ScriptLibraryGroup, ScriptLibraryScript } from "../../types";
 
@@ -38,6 +40,8 @@ export default function ScriptLibraryPanel() {
   const [showNewScript, setShowNewScript] = useState(false);
   const [newScriptName, setNewScriptName] = useState("");
   const [newScriptType, setNewScriptType] = useState<"shell" | "python">("shell");
+  const [archiving, setArchiving] = useState(false);
+  const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
 
   const loadGroups = useCallback(async () => {
     try {
@@ -161,6 +165,45 @@ export default function ScriptLibraryPanel() {
     } catch (e) { console.error("创建脚本失败:", e); }
   };
 
+  const handleArchiveCurrent = async () => {
+    if (!selectedScript) return;
+    setArchiving(true);
+    setArchiveMsg(null);
+    try {
+      const res = await archiveScript(selectedScript.group, selectedScript.name);
+      setArchiveMsg(`已存档: ${res.path}`);
+    } catch (e) {
+      setArchiveMsg("存档失败: " + (e instanceof Error ? e.message : "未知错误"));
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleExportCurrent = () => {
+    if (!selectedScript) return;
+    window.open(
+      `/api/workflows/script-library/archive/export?group=${encodeURIComponent(selectedScript.group)}&name=${encodeURIComponent(selectedScript.name)}`,
+      "_blank"
+    );
+  };
+
+  const handleArchiveAll = async () => {
+    setArchiving(true);
+    setArchiveMsg(null);
+    try {
+      const res = await archiveAllScripts();
+      setArchiveMsg(`已为 ${res.count} 个脚本生成存档`);
+    } catch (e) {
+      setArchiveMsg("存档失败: " + (e instanceof Error ? e.message : "未知错误"));
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleExportAll = () => {
+    window.open("/api/workflows/script-library/archive/export-all", "_blank");
+  };
+
   return (
     <div className="flex-1 flex min-h-0">
       {/* Group Sidebar */}
@@ -213,15 +256,34 @@ export default function ScriptLibraryPanel() {
           <h3 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
             {selectedGroup ? `${selectedGroup} 脚本` : "脚本"}
           </h3>
-          {selectedGroup && (
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => setShowNewScript(true)}
-              aria-label="新建脚本"
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+              onClick={handleArchiveAll}
+              disabled={archiving}
+              title="为所有脚本生成本地存档（E 盘）"
+              aria-label="全部存档"
+              className="p-1 rounded text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-40"
             >
-              <Plus size={14} />
+              <Archive size={14} />
             </button>
-          )}
+            <button
+              onClick={handleExportAll}
+              title="导出全部脚本存档（下载 Markdown）"
+              aria-label="导出全部存档"
+              className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <Download size={14} />
+            </button>
+            {selectedGroup && (
+              <button
+                onClick={() => setShowNewScript(true)}
+                aria-label="新建脚本"
+                className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <Plus size={14} />
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex-1 overflow-auto py-1">
           {!selectedGroup ? (
@@ -286,6 +348,23 @@ export default function ScriptLibraryPanel() {
                 ) : (
                   <>
                     <button
+                      onClick={handleArchiveCurrent}
+                      disabled={archiving}
+                      title="生成本地存档到 E 盘"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs transition-colors cursor-pointer disabled:opacity-40"
+                    >
+                      <Archive size={14} className="inline mr-1" />
+                      存档
+                    </button>
+                    <button
+                      onClick={handleExportCurrent}
+                      title="导出本脚本存档（下载 .md）"
+                      className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs transition-colors cursor-pointer"
+                    >
+                      <Download size={14} className="inline mr-1" />
+                      导出
+                    </button>
+                    <button
                       onClick={() => setEditing(true)}
                       className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors cursor-pointer"
                     >
@@ -302,6 +381,12 @@ export default function ScriptLibraryPanel() {
                 )}
               </div>
             </div>
+
+            {archiveMsg && (
+              <div className="px-4 py-2 border-b border-indigo-500/10 text-xs text-amber-300/90 bg-amber-500/5">
+                {archiveMsg}
+              </div>
+            )}
 
             {/* Content */}
             {loading ? (
