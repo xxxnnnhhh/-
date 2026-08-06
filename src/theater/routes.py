@@ -68,6 +68,7 @@ class TheaterCreateRequest(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     scene: dict = Field(default_factory=dict)
     battle_ratio: int = Field(default=70, ge=0, le=100)
+    model_override: str | None = None
 
 
 class RatioRequest(BaseModel):
@@ -107,6 +108,7 @@ async def create_session(body: TheaterCreateRequest, request: Request):
         character_ids=body.character_ids,
         scene=body.scene,
         battle_ratio=body.battle_ratio,
+        model_override=body.model_override,
     )
     return {"success": True, "session": s.to_dict()}
 

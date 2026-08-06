@@ -44,6 +44,15 @@ def emotion_summary(emotion_state: dict) -> dict:
         "value": round(best_val, 2),
     }
 
+
+def _scene_anchor(location: str) -> str:
+    """从地点描述提取场景锚点词（如"打烊的咖啡馆"→"咖啡馆"）。"""
+    loc = re.sub(r"[，。；、/：\s（）()]", "", location or "")
+    loc = loc.replace("的", "")
+    if not loc:
+        return ""
+    return loc[-3:] if len(loc) >= 3 else loc
+
 logger = logging.getLogger("theater")
 
 WORLDS_DIR = Path(DATA_DIR) / "worlds"
@@ -106,6 +115,7 @@ class TheaterManager:
         character_ids: list[str] | None = None,
         scene: dict | None = None,
         battle_ratio: int = 70,
+        model_override: str | None = None,
     ) -> TheaterSession:
         session = TheaterSession(
             world_id=world_id,
@@ -114,6 +124,7 @@ class TheaterManager:
             character_ids=list(character_ids or []),
             scene=dict(scene or {}),
             battle_ratio=battle_ratio,
+            model_override=model_override,
         )
         session.save()
         self.sessions[session.session_id] = session
@@ -290,10 +301,11 @@ class TheaterManager:
         return result
 
     async def perform_round(self, session_id: str, director: str = "") -> dict:
-        """执行一轮演出：旁白（小说式）→ 各角色四通道发言（AI 生成）。
+        """执行一轮演出：AI 直接生成一段小说正文（叙述体）。
 
-        战斗场景时，旁白用小说式文字描写打斗（参考网文），
-        数值判定作为可选补充（由前端按比重展示）。
+        输出是小说正文：场景描写、角色动作、对话自然融合，
+        不使用舞台指示/括号标注，符合网络小说文风。
+        战斗场景时用小说式文字描写打斗（参考网文）。
         """
         from src.core.llm_client import create_llm
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -311,58 +323,97 @@ class TheaterManager:
         world_ctx = self._build_world_context(world)
         record = getattr(session, "record", [])
 
-        # ---------- 1. 旁白：小说式场景/打斗描写 ----------
+        # ---------- 生成一段小说正文 ----------
+        char_summaries = []
+        for c in chars:
+            emo = emotion_summary(c.emotion_state or {})
+            char_summaries.append(
+                f"- {c.name}：类型{'/'.join(c.types) or '通用'}，当前情绪{emo['name']}"
+                f"（强度{emo['value']}），压力{c.pressure}，"
+                f"五维{'、'.join(f'{k}{v}' for k, v in c.stats.items())}，"
+                f"装备{'、'.join(e.get('name','') for e in c.equipment) or '无'}，"
+                f"写作风格{'、'.join(c.skill_ids) or '无'}"
+            )
+        char_block = "\n".join(char_summaries)
+
+        scene_loc = str(session.scene.get("location", ""))
+        scene_time = str(session.scene.get("time", ""))
+        scene_mood = str(session.scene.get("mood", ""))
+        scene_anchor = _scene_anchor(scene_loc)
+        scene_force = (
+            f"【强制场景（绝不可违反）】地点：{scene_loc or '未指定'}。"
+            f"时间：{scene_time or '未指定'}。气氛：{scene_mood or '未指定'}。"
+            "你写的每一句都必须发生在这个地点和时间里，禁止更换地点、时间，禁止出现与设定无关的环境。"
+        )
         if is_battle:
-            narrator_sys = (
-                "你是一位小说打斗场面描写者。请用网络小说式的文字描写战斗过程："
-                "有招式动作、攻防转换、环境互动、力量与速度的对比，像小说正文一样有画面感。"
-                "禁止只写'他们打了起来'这类概括。2-4 句话。"
+            novel_sys = (
+                "你是一位网络小说作家，正在写一场战斗。"
+                f"{scene_force}"
+                "请用小说正文的形式描写这场打斗：有招式动作、攻防转换、环境互动、力量与速度的对比，"
+                "像小说章节一样有画面感和张力。角色对话用引号自然融入叙述。"
+                "禁止舞台指示、禁止括号标注，直接写小说正文。篇幅 150-300 字。"
             )
         else:
-            narrator_sys = (
-                "你是一位小说旁白叙述者，写场景描写。文风简洁有画面感，像小说正文，"
-                "不解释、不评价、不替角色说话。2-3 句话。"
+            novel_sys = (
+                "你是一位网络小说作家。"
+                f"{scene_force}"
+                "请用小说正文的形式推进剧情：场景描写、角色动作、心理、对话自然融合成一段连贯的小说段落，"
+                "文风有画面感和代入感。角色对话用引号自然融入叙述。"
+                "禁止舞台指示、禁止括号标注，直接写小说正文。篇幅 150-300 字。"
             )
-        narrator_user = (
-            f"{world_ctx}\n\n场景：{session.scene}\n\n最近的剧情：\n"
-            + ("\n".join(str(x) for x in record[-6:]) or "（开场）")
-            + (f"\n\n导演指令：{director}" if director else "")
+        # 场景写法示例（few-shot）：让模型模仿场景与文风
+        scene_example = (
+            f"\n\n【场景写法示例（模仿它的地点与文风，不要照抄内容）】\n"
+            f"{scene_loc or '咖啡馆'}里光线昏暗，桌椅的阴影在墙上一动不动。"
+            f"{scene_time or '深夜'}，只有角落那盏灯还亮着，"
+            f"空气里弥漫着{scene_mood or '压抑'}的气息。"
+            "沈默坐在窗边，指节无意识地摩挲着杯沿。"
         )
+        novel_user = (
+            f"【本段场景（硬约束，禁止更改）】\n地点：{scene_loc or '未指定'}；"
+            f"时间：{scene_time or '未指定'}；气氛：{scene_mood or '未指定'}。\n"
+            "本段所有内容必须发生在这个场景中，禁止写其他地点、禁止跳过场景直接换地方。\n\n"
+            f"正文第一句话必须直接出现「{scene_anchor or scene_loc}」这个地点词。\n\n"
+            f"{scene_example}\n\n"
+            f"{world_ctx}\n\n出场角色：\n{char_block}\n\n"
+            f"已写剧情：\n" + ("\n".join(str(x) for x in record[-6:]) or "（这是故事开头）")
+            + (f"\n\n导演指令：{director}" if director else "")
+            + "\n\n请严格按照系统提示中的【强制场景】，接着写这一段小说正文。"
+        )
+        # 场景锚点校验：正文必须出现场景地点词，否则重写一次
+        novel_text = ""
         try:
-            llm = create_llm(model_params={"temperature": 0.8}, streaming=False)
-            resp = await llm.ainvoke([
-                SystemMessage(content=narrator_sys),
-                HumanMessage(content=narrator_user),
-            ])
-            narrator_text = str(resp.content).strip()
+            llm = create_llm(
+                # 智谱 GLM 系列场景遵循与文笔更稳（实测 DeepSeek 会擅自换场景）
+                model_override=session.model_override or "zhipu:glm-4.6",
+                model_params={"temperature": 0.65, "thinking_enabled": False},
+                streaming=False,
+            )
+            for attempt in range(2):
+                resp = await llm.ainvoke([
+                    SystemMessage(content=novel_sys),
+                    HumanMessage(content=novel_user),
+                ])
+                text = str(resp.content).strip()
+                if not scene_anchor or scene_anchor in text or attempt == 1:
+                    novel_text = text
+                    break
+                # 未包含场景锚点：强制纠正重写
+                novel_user = (
+                    f"你上一版场景写错了。唯一允许的地点就是【{scene_loc}】。"
+                    f"请重写，正文第一句必须是「{scene_anchor}」。"
+                    f"时间：{scene_time}；气氛：{scene_mood}。\n\n"
+                    + novel_user
+                )
+            if not novel_text:
+                novel_text = text if "text" in dir() else "夜色渐深，咖啡馆里只剩下两个人的呼吸声。"
         except Exception as e:
-            logger.error(f"旁白生成失败: {e}")
-            narrator_text = "（夜色很静，谁都没有先开口。）"
+            logger.error(f"小说生成失败: {e}")
+            novel_text = "夜色渐深，咖啡馆里只剩下两个人的呼吸声。"
 
-        record.append(f"【旁白】{narrator_text}")
-
-        # ---------- 2. 各角色四通道发言（并行生成，提速） ----------
-        other_names = [c.name for c in chars]
-        turn_results = await asyncio.gather(*[
-            self._gen_char_turn(
-                c, world_ctx, session, is_battle, record, other_names,
-            )
-            for c in chars
-        ], return_exceptions=True)
-        turns = []
-        for c, res in zip(chars, turn_results):
-            if isinstance(res, Exception):
-                logger.error(f"角色 {c.name} 发言失败: {res}")
-                turn = {"thinking": "", "expression": "（沉默）", "action": "没有动作",
-                        "speech": "「……」"}
-            else:
-                turn = res
-            turns.append(turn)
-            record.append(
-                f"{c.name}（思考：{turn['thinking']}）表情：{turn['expression']}；"
-                f"动作：{turn['action']}；台词：{turn['speech']}"
-            )
-            # 简单情绪演算：压力累积，发言后轻微波动
+        record.append(novel_text)
+        # 简单情绪演算：压力累积
+        for c in chars:
             c.pressure = min(100, (c.pressure or 0) + 2)
 
         session.record = record
@@ -370,8 +421,8 @@ class TheaterManager:
         return {
             "success": True,
             "round": len(record),
-            "narrator": narrator_text,
-            "turns": turns,
+            "narrator": novel_text,  # 一段小说正文
+            "turns": [],  # 小说模式：不再分角色四通道
             "is_battle": is_battle,
             "battle_ratio": session.battle_ratio,
             "session": session.to_dict(),

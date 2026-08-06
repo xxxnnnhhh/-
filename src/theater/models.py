@@ -97,6 +97,7 @@ class TheaterSession:
     pre_read_steps: list[dict] = field(default_factory=list)  # [{key,label,status}]
     consensus: str = ""  # AI 预读取生成的共识摘要
     battle_ratio: int = 70  # 文字演绎占比（0-100），数值判定 = 100 - ratio
+    model_override: str | None = None  # 演出用模型（默认 deepseek-v4-pro）
     status: str = "waiting"  # waiting | discussing | ended
     record: list[str] = field(default_factory=list)  # 演出记录（旁白/角色行）
     created_at: str = ""
@@ -123,6 +124,7 @@ class TheaterSession:
             pre_read_steps=list(data.get("pre_read_steps", []) or []),
             consensus=data.get("consensus", ""),
             battle_ratio=int(data.get("battle_ratio", 70) or 70),
+            model_override=data.get("model_override"),
             status=data.get("status", "waiting"),
             record=list(data.get("record", []) or []),
             created_at=data.get("created_at", ""),

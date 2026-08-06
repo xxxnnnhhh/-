@@ -486,10 +486,8 @@ export default function TheaterPage() {
                 {performMsgs.map((m, i) => {
                   if (m.kind === "narrator") {
                     return (
-                      <div key={i} className="text-center text-slate-400 italic text-xs leading-relaxed max-w-[85%] mx-auto">
-                        <div className="w-12 h-px bg-slate-700 mx-auto my-1.5" />
+                      <div key={i} className="text-slate-200 text-[15px] leading-loose max-w-[92%] first-letter:ml-4">
                         {m.narrator}
-                        <div className="w-12 h-px bg-slate-700 mx-auto my-1.5" />
                       </div>
                     );
                   }

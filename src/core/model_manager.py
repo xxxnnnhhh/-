@@ -65,8 +65,12 @@ def _build_gpt_extra_body(params: dict) -> dict:
 
 
 def _build_glm_extra_body(params: dict) -> dict:
-    """GLM 系列：标准 OpenAI 兼容接口，无需 thinking 参数。"""
-    return {}
+    """GLM 系列：标准 OpenAI 兼容接口；支持关闭思考加速。"""
+    extra = {}
+    thinking_enabled = params.get("thinking_enabled")
+    if thinking_enabled is not None:
+        extra["enable_thinking"] = bool(thinking_enabled)
+    return extra
 
 
 PROVIDER_CATEGORIES: dict[str, dict] = {
