@@ -127,6 +127,7 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 const ACTION_LABELS: Record<string, string> = {
   chapter_body_update: "写入章节正文",
   run_step: "运行流水线步骤",
+  workflow_run: "运行工作流",
   run_pipeline: "连跑整条流水线",
   workflow_update_node: "修改工作流节点",
   describe_workflows: "描述工作流",
@@ -603,6 +604,8 @@ export default function BookShelfPage() {
         setAsstMsgs((prev) => [...prev, { role: "assistant", content: "🚀 整条流水线已串起来开跑，正在后台运行（世界观→角色→故事→卷纲→逐章…），完成或失败我会告诉你。" }]);
       } else if (data.operation === "run_step") {
         setAsstMsgs((prev) => [...prev, { role: "assistant", content: `✅ 已启动 ${String(action.arguments.step_key || "")}，正在后台运行，失败我会自动诊断。` }]);
+      } else if (data.operation === "workflow_run") {
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `✅ 已启动工作流 ${data.workflow_id || String(action.arguments.workflow_id || "")}，正在后台运行，失败我会自动诊断。` }]);
       }
       await fetchContent(selected.project_id);
     } catch (e) {
@@ -773,6 +776,14 @@ export default function BookShelfPage() {
             )}
             {action.operation === "run_step" && (
               <div className="mt-1 text-xs text-slate-400">步骤：{String(action.arguments.step_key || "")}</div>
+            )}
+            {action.operation === "workflow_run" && (
+              <div className="mt-1 text-xs text-slate-400">
+                工作流：{String(action.arguments.workflow_id || "")}
+                {action.arguments.parameter_values ? (
+                  <span className="ml-2 text-slate-500">参数：{JSON.stringify(action.arguments.parameter_values)}</span>
+                ) : null}
+              </div>
             )}
             {action.operation === "workflow_update_node" && (
               <div className="mt-2 space-y-1 text-xs text-slate-400">

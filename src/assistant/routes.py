@@ -80,6 +80,26 @@ async def confirm_action(project_id: str, body: ConfirmActionRequest, request: R
         result = runner.start_single(project, step_key)
         if not result.get("success"):
             raise HTTPException(status_code=409, detail=result.get("message", "启动失败"))
+    elif op == "workflow_run":
+        mgr = request.app.state.workflow_manager
+        wf_id = str(args.get("workflow_id", "")).strip()
+        if mgr.get_workflow(wf_id) is None:
+            raise HTTPException(status_code=404, detail=f"工作流不存在: {wf_id}")
+        pv = args.get("parameter_values") or {}
+        if not isinstance(pv, dict):
+            pv = {}
+        created = mgr.create_task(wf_id, parameter_values=pv, workspace_override=project.workspace)
+        if created is None:
+            raise HTTPException(status_code=409, detail="创建任务失败：工作流不可用或参数无效")
+        started = await mgr.run_task(wf_id, created["task_id"])
+        if not started.get("success"):
+            raise HTTPException(status_code=409, detail=started.get("message", "启动失败"))
+        result = {
+            "success": True,
+            "message": f"已启动工作流 {wf_id}",
+            "workflow_id": wf_id,
+            "task_id": created["task_id"],
+        }
     elif op == "workflow_update_node":
         manager = request.app.state.workflow_manager
         result = apply_workflow_node_update(manager, args)

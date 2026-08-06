@@ -128,7 +128,18 @@ def describe_workflows() -> str:
                 fm = (n.get("first_message") or "").strip()
                 if fm:
                     snippet = "｜" + fm[:50].replace("\n", " ")
-                parts.append(f"{nid}（{label}·{ntype}{snippet}）")
+                params = n.get("node_params") or {}
+                param_txt = ""
+                if isinstance(params, dict) and params:
+                    keys = []
+                    for pk, pv in params.items():
+                        if isinstance(pv, (str, int, float, bool)) and str(pv).strip():
+                            keys.append(f"{pk}={pv}")
+                        elif pk == "script_args":
+                            keys.append(f"script_args={str(pv)[:40]}")
+                    if keys:
+                        param_txt = "｜参数 " + "，".join(keys[:5])
+                parts.append(f"{nid}（{label}·{ntype}{snippet}{param_txt}）")
             lines.append(f"## {wf_name}（{wf_id}）")
             lines.append("\n".join(parts))
         except Exception:
@@ -338,6 +349,7 @@ _KNOWN_OPS = ("run_pipeline", "describe_workflows", "run_step", "chapter_body_up
 
 _ACTION_REQUIRED_ARGS = {
     "run_step": ["step_key"],
+    "workflow_run": ["workflow_id"],
     "chapter_body_update": ["chapter_number", "body"],
     "workflow_update_node": ["workflow_id", "node_id", "field", "new_value"],
     "project_update": ["fields"],
@@ -452,7 +464,12 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 
 当用户要求"调整/修改工作流里的某个节点"（改提示词、参数、标签）时，你必须引用上面"可调配工作流"里的真实节点 ID：
 {"reply": "准备把大纲导演的提示词改为更关注伏笔，请确认", "action": {"operation": "workflow_update_node", "arguments": {"workflow_id": "bishu-novel-mvp", "node_id": "agent_od", "field": "first_message", "new_value": "……新的完整提示词……", "reason": "用户要求加强伏笔关注"}}}
-允许修改的 field：first_message（给 AI 的任务指令）、system_prompt_template（补充规则）、label（节点名称）、model_override（模型覆盖，格式 供应商:模型 或留空）。
+允许修改的 field：first_message（给 AI 的任务指令）、system_prompt_template（补充规则）、label（节点名称）、model_override（模型覆盖，格式 供应商:模型 或留空）、node_params.<键>（节点参数，如 node_params.timeout 改超时、node_params.max_reject_count 改重试次数，值可以是数字/布尔/字符串）。
+改脚本节点超时/重试的示例：
+{"reply": "准备把角色创建的 sync_down 节点超时提高到 120 秒、重试 5 次，请确认", "action": {"operation": "workflow_update_node", "arguments": {"workflow_id": "bishu-novel-character", "node_id": "script_sync_down", "field": "node_params.timeout", "new_value": 120, "reason": "同步失败需要更长超时"}}}
+
+当用户要求"运行某个工作流 / 重跑角色创建 / 单独跑某个工作流"时（不限于本书管线步骤）：
+{"reply": "准备运行该工作流，请确认", "action": {"operation": "workflow_run", "arguments": {"workflow_id": "bishu-novel-character", "parameter_values": {"language": "中文"}}}}
 
 当用户要求"改这本书的设定 / 填创意 / 改类型 / 改章节数 / 改字数 / 改意图 / 换助手模型"时：
 {"reply": "准备更新本书设定，请确认", "action": {"operation": "project_update", "arguments": {"fields": {"premise": "新创意……", "genre": "东方玄幻", "chapters": [1,2,3], "target_word_count": "3000-4000", "human_intent": "……", "world_intent": "……", "assistant_model": "zhipu:glm-4.6"}}}}
@@ -462,7 +479,7 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 {"reply": "准备把存档目录改到该路径，请确认", "action": {"operation": "project_move", "arguments": {"archive_root": "E:/我的存档/《书名》"}}}
 project_move 的 arguments 可含 new_workspace（移动整个工作区，仅空闲时允许）或 archive_root（改完整文本/章节的存档目录）。
 
-你只能使用以下操作：chapter_body_update / run_step / run_pipeline / workflow_update_node / describe_workflows / project_update / project_move。除此之外一律用纯回复，不要发明新操作。
+你只能使用以下操作：chapter_body_update / run_step / run_pipeline / workflow_run / workflow_update_node / describe_workflows / project_update / project_move。除此之外一律用纯回复，不要发明新操作。
 
 可用 step_key：build（世界观构建）、character（角色创建）、story-plan（故事规划）、outline（卷纲近纲）、
 chapter-0001-mvp（第1章生产）、chapter-0001-post-hoc（后验）、chapter-0001-polish（润色），依此类推。
