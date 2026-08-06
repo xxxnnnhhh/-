@@ -260,7 +260,7 @@ export default function TheaterPage() {
   const picked = characters.filter((c) => pickedIds.includes(c.character_id));
 
   return (
-    <div className="h-full flex gap-3 p-3 min-h-0 bg-slate-950">
+    <div className="h-[calc(100vh-3.5rem)] flex gap-3 p-3 min-h-0 bg-slate-950 overflow-hidden">
       {/* 左栏：控制台 */}
       <div className="w-72 shrink-0 rounded-xl border border-slate-700/60 bg-slate-900/60 flex flex-col min-h-0 overflow-auto">
         <div className="px-4 py-3 border-b border-slate-700/60 flex items-center gap-2">
@@ -422,7 +422,7 @@ export default function TheaterPage() {
           <span className="ml-auto text-[11px] text-slate-500">{selectedWorld ? `世界：${selectedWorld.name}` : "未选择世界"}</span>
         </div>
 
-        <div className="flex-1 overflow-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 min-w-0">
           {!session ? (
             <div className="h-full flex items-center justify-center text-slate-500 text-sm">
               选择世界与角色后「创建剧场会话」，然后「预读取」开演
@@ -461,8 +461,8 @@ export default function TheaterPage() {
                 )}
               </div>
 
-              {/* 演出消息流 */}
-              <div className="flex-1 space-y-3">
+              {/* 演出消息流（仅中间滚动，左右栏固定） */}
+              <div className="flex-1 space-y-3 min-w-0">
                 {performMsgs.length === 0 && (
                   <div className="rounded-xl border border-dashed border-slate-700 flex flex-col items-center justify-center gap-3 text-slate-600 text-xs p-8">
                     {session.pre_read_done
@@ -513,20 +513,22 @@ export default function TheaterPage() {
                   const roleSkills = roleChar?.skill_ids || [];
                   return (
                     <div key={i} className="max-w-[82%] break-words" style={{ borderLeft: `3px solid ${color.border}`, background: color.bg, borderRadius: 10, padding: "8px 12px" }}>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-sm font-semibold" style={{ color: color.name }}>{t.name}</span>
                         {roleSkills.length > 0 && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300">Skills：{roleSkills.join("、")}</span>
                         )}
-                        {Object.keys(t.emotion || {}).length > 0 && (
-                          <span className="text-[10px] text-slate-500">情绪：{Object.entries(t.emotion).map(([k, v]) => `${k} ${v}`).join("、")}</span>
-                        )}
                       </div>
+                      {/* 重要正文：台词 */}
                       {t.speech && <div className="text-sm text-slate-100 leading-relaxed break-words whitespace-pre-wrap">{t.speech}</div>}
-                      <div className="flex flex-wrap gap-1.5 mt-2 break-words">
-                        {t.thinking && <span className="chan think">思考：{t.thinking}</span>}
-                        {t.expression && <span className="chan face">表情：{t.expression}</span>}
-                        {t.action && <span className="chan act">动作：{t.action}</span>}
+                      {/* 辅助信息：用括号弱化 */}
+                      <div className="text-[11px] text-slate-400 mt-1.5 leading-relaxed break-words">
+                        {t.thinking && <span>（思考：{t.thinking}）</span>}
+                        {t.expression && <span>（表情：{t.expression}）</span>}
+                        {t.action && <span>（动作：{t.action}）</span>}
+                        {Object.keys(t.emotion || {}).length > 0 && (
+                          <span>（情绪：{Object.entries(t.emotion).map(([k]) => k).join("、")}）</span>
+                        )}
                       </div>
                     </div>
                   );
