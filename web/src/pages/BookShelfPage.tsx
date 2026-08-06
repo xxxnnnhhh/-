@@ -46,6 +46,7 @@ interface NovelProject {
   extra_workflow_ids: string[];
   assistant_enabled: boolean;
   assistant_model: string;
+  archive_root: string;
   created_at: string;
   updated_at: string;
   status: "idle" | "running" | "completed" | "failed" | "stopped";
@@ -129,6 +130,8 @@ const ACTION_LABELS: Record<string, string> = {
   run_pipeline: "连跑整条流水线",
   workflow_update_node: "修改工作流节点",
   describe_workflows: "描述工作流",
+  project_update: "更新书设定",
+  project_move: "修改保存路径",
 };
 
 const WORKFLOW_LINKS: { id: string; label: string; desc: string }[] = [
@@ -779,6 +782,23 @@ export default function BookShelfPage() {
                   <div className="mb-1 text-slate-500">新值（{String(action.arguments.new_value || "").length} 字）：</div>
                   <pre className="whitespace-pre-wrap text-slate-200 max-h-40 overflow-y-auto">{String(action.arguments.new_value || "")}</pre>
                 </div>
+              </div>
+            )}
+            {action.operation === "project_update" && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <div>将更新以下设定：</div>
+                {Object.entries((action.arguments.fields as Record<string, unknown>) || {}).map(([k, v]) => (
+                  <div key={k} className="rounded bg-slate-950/60 px-2 py-1">
+                    <span className="text-slate-500">{k}：</span>
+                    <span className="text-slate-200">{Array.isArray(v) ? v.join("、") : String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {action.operation === "project_move" && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                {action.arguments.new_workspace ? <div>新工作区：<code className="text-slate-200">{String(action.arguments.new_workspace)}</code></div> : null}
+                {action.arguments.archive_root ? <div>新存档目录：<code className="text-slate-200">{String(action.arguments.archive_root)}</code></div> : null}
               </div>
             )}
             <div className="mt-3 flex items-center gap-2">

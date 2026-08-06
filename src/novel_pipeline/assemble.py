@@ -46,8 +46,10 @@ def assemble_full_text(project: "NovelProject") -> tuple[str, str]:
     final_path = novel_dir / f"《{title}》完整文本.md"
     final_path.write_text(full_text, encoding="utf-8")
 
-    # 2. E 盘存档（中文命名，含章节分文件）
-    book_dir = NOVEL_ARCHIVE_DIR / f"《{title}》"
+    # 2. E 盘存档（中文命名，含章节分文件；可用 archive_root 覆盖默认目录）
+    archive_root = Path(project.archive_root) if project.archive_root else NOVEL_ARCHIVE_DIR
+    archive_root.mkdir(parents=True, exist_ok=True)
+    book_dir = archive_root / f"《{title}》"
     book_dir.mkdir(parents=True, exist_ok=True)
     archived = book_dir / f"《{title}》完整文本.md"
     archived.write_text(full_text, encoding="utf-8")

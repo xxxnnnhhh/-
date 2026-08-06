@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field
 from src.novel_pipeline.models import load_project, save_project
 from .brain import chat as brain_chat
 from .brain import diagnose as brain_diagnose
-from .brain import execute_chapter_body_update, apply_workflow_node_update, describe_workflows
+from .brain import (
+    execute_chapter_body_update,
+    apply_workflow_node_update,
+    apply_project_update,
+    apply_project_move,
+    describe_workflows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +96,15 @@ async def confirm_action(project_id: str, body: ConfirmActionRequest, request: R
         result = runner.start(project, reset=bool(args.get("reset", False)))
         if not result.get("success"):
             raise HTTPException(status_code=409, detail=result.get("message", "启动失败"))
+    elif op == "project_update":
+        result = apply_project_update(project, args.get("fields") or {})
+        if not result.get("success"):
+            raise HTTPException(status_code=409, detail=result.get("message", "更新失败"))
+    elif op == "project_move":
+        runner = request.app.state.novel_pipeline_runner
+        result = apply_project_move(project, args, is_running=runner.is_running(project.project_id))
+        if not result.get("success"):
+            raise HTTPException(status_code=409, detail=result.get("message", "移动失败"))
     else:
         raise HTTPException(status_code=400, detail=f"未知动作: {op}")
     return {"project_id": project_id, "operation": op, **result}

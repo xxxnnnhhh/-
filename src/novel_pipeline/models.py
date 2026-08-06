@@ -106,6 +106,7 @@ class NovelProject:
     extra_workflow_ids: list[str] = field(default_factory=list)  # 用户自定义加入的工作流
     assistant_enabled: bool = True                             # 总大脑 AI 开关
     assistant_model: str = ""                                  # 总大脑模型（空=默认 glm-4.6）
+    archive_root: str = ""                                     # 存档根目录（空=默认 E:\故事机器\小说存档）
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     status: str = "idle"              # idle/running/completed/failed/stopped
@@ -137,6 +138,7 @@ class NovelProject:
             "extra_workflow_ids": list(self.extra_workflow_ids),
             "assistant_enabled": self.assistant_enabled,
             "assistant_model": self.assistant_model,
+            "archive_root": self.archive_root,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status,
@@ -188,6 +190,7 @@ class NovelProject:
             ],
             assistant_enabled=bool(data.get("assistant_enabled", True)),
             assistant_model=data.get("assistant_model", "") or "",
+            archive_root=data.get("archive_root", "") or "",
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             status=data.get("status", "idle") or "idle",

@@ -340,6 +340,8 @@ _ACTION_REQUIRED_ARGS = {
     "run_step": ["step_key"],
     "chapter_body_update": ["chapter_number", "body"],
     "workflow_update_node": ["workflow_id", "node_id", "field", "new_value"],
+    "project_update": ["fields"],
+    "project_move": [],
     "run_pipeline": [],
     "describe_workflows": [],
 }
@@ -452,7 +454,15 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 {"reply": "准备把大纲导演的提示词改为更关注伏笔，请确认", "action": {"operation": "workflow_update_node", "arguments": {"workflow_id": "bishu-novel-mvp", "node_id": "agent_od", "field": "first_message", "new_value": "……新的完整提示词……", "reason": "用户要求加强伏笔关注"}}}
 允许修改的 field：first_message（给 AI 的任务指令）、system_prompt_template（补充规则）、label（节点名称）、model_override（模型覆盖，格式 供应商:模型 或留空）。
 
-你只能使用以下操作：chapter_body_update / run_step / run_pipeline / workflow_update_node / describe_workflows。除此之外一律用纯回复，不要发明新操作。
+当用户要求"改这本书的设定 / 填创意 / 改类型 / 改章节数 / 改字数 / 改意图 / 换助手模型"时：
+{"reply": "准备更新本书设定，请确认", "action": {"operation": "project_update", "arguments": {"fields": {"premise": "新创意……", "genre": "东方玄幻", "chapters": [1,2,3], "target_word_count": "3000-4000", "human_intent": "……", "world_intent": "……", "assistant_model": "zhipu:glm-4.6"}}}}
+可更新的 fields：name / premise / genre / language / chapters（数字数组）/ target_word_count / estimated_length / words_per_chapter / human_intent / world_intent / writer_type / assistant_model / assistant_enabled（布尔）/ archive_root（存档目录）。
+
+当用户要求"把保存路径 / 存档目录 改到某处"（如 E 盘某文件夹）时：
+{"reply": "准备把存档目录改到该路径，请确认", "action": {"operation": "project_move", "arguments": {"archive_root": "E:/我的存档/《书名》"}}}
+project_move 的 arguments 可含 new_workspace（移动整个工作区，仅空闲时允许）或 archive_root（改完整文本/章节的存档目录）。
+
+你只能使用以下操作：chapter_body_update / run_step / run_pipeline / workflow_update_node / describe_workflows / project_update / project_move。除此之外一律用纯回复，不要发明新操作。
 
 可用 step_key：build（世界观构建）、character（角色创建）、story-plan（故事规划）、outline（卷纲近纲）、
 chapter-0001-mvp（第1章生产）、chapter-0001-post-hoc（后验）、chapter-0001-polish（润色），依此类推。
@@ -662,6 +672,88 @@ def apply_workflow_node_update(manager, arguments: dict) -> dict:
         "old_value": str(old_value)[:500] if old_value is not None else "",
         "new_value": str(new_value)[:500],
         "reason": reason,
+    }
+
+
+_PROJECT_UPDATE_FIELDS = {
+    "name": str, "premise": str, "genre": str, "language": str,
+    "target_word_count": str, "estimated_length": str, "words_per_chapter": str,
+    "human_intent": str, "world_intent": str, "writer_type": str,
+    "assistant_model": str, "archive_root": str,
+    "chapters": list, "assistant_enabled": bool,
+}
+
+
+def apply_project_update(project, fields: dict) -> dict:
+    """更新书的基本设定（创意/类型/章节/字数/意图/模型/存档目录等）。"""
+    from ..novel_pipeline.models import save_project
+    if not isinstance(fields, dict) or not fields:
+        return {"success": False, "message": "fields 不能为空"}
+    changed: list[str] = []
+    for key, value in fields.items():
+        if key not in _PROJECT_UPDATE_FIELDS:
+            continue
+        expected = _PROJECT_UPDATE_FIELDS[key]
+        if expected is str:
+            value = str(value or "").strip()
+        elif expected is list:
+            if isinstance(value, str):
+                value = [int(x) for x in str(value).split(",") if x.strip().isdigit()]
+            if not isinstance(value, list) or not all(str(x).strip().isdigit() for x in value):
+                return {"success": False, "message": f"chapters 必须是数字数组或逗号分隔数字: {value}"}
+            value = [int(x) for x in value]
+            if not value:
+                return {"success": False, "message": "chapters 不能为空"}
+        elif expected is bool:
+            if isinstance(value, str):
+                value = str(value).strip().lower() in ("true", "1", "yes", "on", "是")
+            value = bool(value)
+        setattr(project, key, value)
+        changed.append(key)
+    if not changed:
+        return {"success": False, "message": "没有可更新的字段"}
+    project.steps = project.build_steps()
+    save_project(project)
+    return {
+        "success": True,
+        "message": f"已更新书设定：{'、'.join(changed)}",
+        "changed": changed,
+        "project": project.to_dict(),
+    }
+
+
+def apply_project_move(project, arguments: dict, is_running: bool) -> dict:
+    """移动保存路径：改存档目录（archive_root）或整体移动工作区（new_workspace）。"""
+    from ..novel_pipeline.models import save_project
+    archive_root = str(arguments.get("archive_root", "")).strip()
+    new_workspace = str(arguments.get("new_workspace", "")).strip()
+    if not archive_root and not new_workspace:
+        return {"success": False, "message": "需要提供 archive_root 或 new_workspace"}
+    if new_workspace:
+        if is_running:
+            return {"success": False, "message": "作品正在连跑，先停止再移动工作区"}
+        from src.config import DATA_DIR, BASE_DIR
+        dest = Path(new_workspace).expanduser().resolve()
+        allowed = (DATA_DIR.resolve(), BASE_DIR.resolve())
+        if not any(dest.is_relative_to(root) for root in allowed):
+            return {"success": False, "message": f"保存路径必须在 E 盘项目/数据目录内：{new_workspace}"}
+        src = Path(project.workspace)
+        if src.resolve() != dest and src.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                return {"success": False, "message": f"目标路径已存在: {dest}"}
+            import shutil
+            shutil.move(str(src), str(dest))
+        dest.mkdir(parents=True, exist_ok=True)
+        project.workspace = str(dest)
+    if archive_root:
+        project.archive_root = archive_root
+    save_project(project)
+    return {
+        "success": True,
+        "message": "保存路径已更新",
+        "workspace": project.workspace,
+        "archive_root": project.archive_root or "E:/故事机器/小说存档（默认）",
     }
 
 
