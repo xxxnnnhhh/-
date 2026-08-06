@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 from src.novel_pipeline.models import load_project, save_project
 from .brain import chat as brain_chat
-from .brain import execute_chapter_body_update
+from .brain import diagnose as brain_diagnose
+from .brain import execute_chapter_body_update, apply_workflow_node_update
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,11 @@ class SetSkillsRequest(BaseModel):
     skill_ids: list[str] = Field(default_factory=list)
 
 
+class AssistantSettingsRequest(BaseModel):
+    assistant_enabled: bool | None = None
+    assistant_model: str | None = None
+
+
 @router.post("/projects/{project_id}/chat")
 async def assistant_chat(project_id: str, body: ChatRequest, request: Request):
     """与总大脑对话：返回 {reply, action?}。"""
@@ -68,9 +74,38 @@ async def confirm_action(project_id: str, body: ConfirmActionRequest, request: R
         result = runner.start_single(project, step_key)
         if not result.get("success"):
             raise HTTPException(status_code=409, detail=result.get("message", "启动失败"))
+    elif op == "workflow_update_node":
+        manager = request.app.state.workflow_manager
+        result = apply_workflow_node_update(manager, args)
+        if not result.get("success"):
+            raise HTTPException(status_code=409, detail=result.get("message", "修改失败"))
     else:
         raise HTTPException(status_code=400, detail=f"未知动作: {op}")
     return {"project_id": project_id, "operation": op, **result}
+
+
+@router.post("/projects/{project_id}/diagnose")
+async def diagnose_project(project_id: str, body: ChatRequest = ChatRequest()):
+    """流水线失败后自动诊断：返回 {diagnosis, actions}。"""
+    project = _get_project(project_id)
+    result = await brain_diagnose(project, model_override=body.model_override)
+    return {"project_id": project_id, **result}
+
+
+@router.post("/projects/{project_id}/settings")
+async def update_assistant_settings(project_id: str, body: AssistantSettingsRequest):
+    """更新总大脑设置（AI 开关 / 模型）。"""
+    project = _get_project(project_id)
+    if body.assistant_enabled is not None:
+        project.assistant_enabled = bool(body.assistant_enabled)
+    if body.assistant_model is not None:
+        project.assistant_model = body.assistant_model.strip()
+    save_project(project)
+    return {
+        "success": True,
+        "assistant_enabled": project.assistant_enabled,
+        "assistant_model": project.assistant_model,
+    }
 
 
 @router.post("/projects/{project_id}/skills")

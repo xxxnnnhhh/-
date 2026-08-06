@@ -103,6 +103,8 @@ class NovelProject:
     character_ids: list[str] = field(default_factory=list)   # 关联人物库角色
     theater_session_ids: list[str] = field(default_factory=list)  # 关联剧场会话
     skill_ids: list[str] = field(default_factory=list)        # 挂载的写作风格 Skills
+    assistant_enabled: bool = True                             # 总大脑 AI 开关
+    assistant_model: str = ""                                  # 总大脑模型（空=默认 glm-4.6）
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     status: str = "idle"              # idle/running/completed/failed/stopped
@@ -131,6 +133,8 @@ class NovelProject:
             "character_ids": list(self.character_ids),
             "theater_session_ids": list(self.theater_session_ids),
             "skill_ids": list(self.skill_ids),
+            "assistant_enabled": self.assistant_enabled,
+            "assistant_model": self.assistant_model,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status,
@@ -177,6 +181,8 @@ class NovelProject:
             skill_ids=[
                 str(s) for s in (data.get("skill_ids") or []) if str(s).strip()
             ],
+            assistant_enabled=bool(data.get("assistant_enabled", True)),
+            assistant_model=data.get("assistant_model", "") or "",
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             status=data.get("status", "idle") or "idle",

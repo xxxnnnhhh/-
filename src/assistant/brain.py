@@ -22,6 +22,37 @@ _CONTEXT_LIMITS = {
     "theater": 3000,
 }
 
+WORKFLOW_ORDER = [
+    ("bishu-novel-build", "世界观构建"),
+    ("bishu-novel-character", "角色创建"),
+    ("bishu-novel-story-plan", "故事宏观规划"),
+    ("bishu-novel-outline", "卷纲近纲规划"),
+    ("bishu-novel-mvp", "章节生产"),
+    ("bishu-novel-post-hoc", "章节后验"),
+    ("bishu-novel-polish", "章节润色"),
+]
+
+
+def _workflow_structure_summary() -> str:
+    """列出 7 个可调配工作流的节点清单（让大脑知道能改什么）。"""
+    from src.config import WORKFLOWS_DIR
+    lines = []
+    for wf_id, wf_name in WORKFLOW_ORDER:
+        def_file = WORKFLOWS_DIR / wf_id / "definition.json"
+        if not def_file.exists():
+            continue
+        try:
+            import json as _json
+            definition = _json.loads(def_file.read_text(encoding="utf-8"))
+            nodes = definition.get("nodes", [])
+            node_txt = "、".join(
+                f"{n.get('id','?')}({n.get('label', n.get('id','?'))})" for n in nodes
+            )
+            lines.append(f"- {wf_name}（{wf_id}，{len(nodes)}节点）：{node_txt}")
+        except Exception:
+            continue
+    return "\n".join(lines)
+
 
 def _read_first(path: Path, limit: int) -> str:
     if not path.is_file():
@@ -99,6 +130,18 @@ def build_context(project) -> str:
             tail = "；".join(str(x) for x in (s.record or [])[-3:])
             theater_txt.append(f"- 《{s.title}》（{'讨论' if s.mode == 'discuss' else '演绎'}）：{tail[:400]}")
 
+    # 最近错误（供诊断）
+    error_lines = []
+    if project.error:
+        error_lines.append(f"- 项目级错误：{project.error[:600]}")
+    for step in project.steps:
+        if step.status == "failed" and step.error:
+            error_lines.append(f"- 步骤[{step.label}]：{step.error[:600]}")
+    errors_section = "\n".join(error_lines) or "（当前无失败）"
+
+    # 工作流结构（可调配清单）
+    workflow_summary = _workflow_structure_summary()
+
     # 挂载的 Skills
     skills_section = ""
     if project.skill_ids:
@@ -139,6 +182,12 @@ def build_context(project) -> str:
         "",
         "## 近期演绎记录",
         "\n".join(theater_txt) or "（暂无演绎记录）",
+        "",
+        "## 最近错误",
+        errors_section,
+        "",
+        "## 可调配工作流（节点清单）",
+        workflow_summary or "（工作流不可读）",
         "",
         skills_section,
     ]
@@ -192,10 +241,14 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 当用户要求"生成世界观 / 角色 / 大纲 / 跑流水线 / 生成第N章（用流水线）"时：
 {"reply": "已准备好启动对应步骤，请确认", "action": {"operation": "run_step", "arguments": {"step_key": "build"}}}
 
+当用户要求"调整/修改工作流里的某个节点"（改提示词、参数、标签）时，你必须引用上面"可调配工作流"里的真实节点 ID：
+{"reply": "准备把大纲导演的提示词改为更关注伏笔，请确认", "action": {"operation": "workflow_update_node", "arguments": {"workflow_id": "bishu-novel-mvp", "node_id": "agent_od", "field": "first_message", "new_value": "……新的完整提示词……", "reason": "用户要求加强伏笔关注"}}}
+允许修改的 field：first_message（给 AI 的任务指令）、system_prompt_template（补充规则）、label（节点名称）、model_override（模型覆盖，格式 供应商:模型 或留空）。
+
 可用 step_key：build（世界观构建）、character（角色创建）、story-plan（故事规划）、outline（卷纲近纲）、
 chapter-0001-mvp（第1章生产）、chapter-0001-post-hoc（后验）、chapter-0001-polish（润色），依此类推。
 
-注意：正文内容不得出现在 reply 里，只出现在 action.arguments.body；回复必须符合挂载的写作风格 Skills。
+注意：章节正文只出现在 action.arguments.body；回复必须符合挂载的写作风格 Skills；修改工作流前先确认节点真实存在。
 """
 
 
@@ -204,6 +257,9 @@ async def chat(project, messages: list[dict], model_override: str | None = None)
     from src.core.llm_client import create_llm
     from langchain_core.messages import HumanMessage, SystemMessage
 
+    if not getattr(project, "assistant_enabled", True):
+        return {"reply": "（总大脑 AI 已关闭：在助手页顶部打开「接入 AI」开关即可。）", "action": None}
+
     context = build_context(project)
     system = (
         SYSTEM_TEMPLATE
@@ -211,7 +267,7 @@ async def chat(project, messages: list[dict], model_override: str | None = None)
         .replace("{context}", context)
     )
 
-    model = model_override or "zhipu:glm-4.6"
+    model = model_override or getattr(project, "assistant_model", "") or "zhipu:glm-4.6"
     try:
         llm = create_llm(streaming=False, model_override=model)
     except Exception:
@@ -242,6 +298,153 @@ async def chat(project, messages: list[dict], model_override: str | None = None)
         if fallback is not None:
             parsed["action"] = fallback
     return parsed
+
+
+DIAGNOSE_TEMPLATE = """你是「{book}」这本书的总大脑，正在做失败诊断。
+下面这本书的流水线/工作流刚刚失败了。请：
+1. 用中文说明失败原因（结合上下文里的「最近错误」和工作流节点）；
+2. 给出修复建议，可以是一个或多个动作：
+   - workflow_update_node：修改某节点提示词/参数/标签后重跑；
+   - run_step：直接重跑某个步骤（如失败步骤本身）。
+
+只输出一个 JSON 对象：
+{{"diagnosis": "失败原因与修复思路（中文，300字内）", "actions": [{{"operation": "workflow_update_node", "arguments": {{"workflow_id": "...", "node_id": "...", "field": "first_message", "new_value": "...", "reason": "..."}}, "explain": "为什么要这样改"}}]}}
+没有需要执行的动作时 actions 为空数组。
+
+==== 本书上下文 ====
+{context}
+"""
+
+
+def _parse_diagnose_output(text: str) -> dict:
+    """解析诊断输出：{diagnosis, actions}。"""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not m:
+            return {"diagnosis": cleaned, "actions": []}
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return {"diagnosis": cleaned, "actions": []}
+    if not isinstance(data, dict):
+        return {"diagnosis": cleaned, "actions": []}
+    diagnosis = str(
+        data.get("diagnosis") or data.get("reply") or data.get("message") or ""
+    ).strip()
+    actions = data.get("actions") or []
+    if isinstance(actions, dict):
+        actions = [actions]
+    if not actions and data.get("action"):
+        actions = [data["action"]]
+    if not isinstance(actions, list):
+        actions = []
+    return {"diagnosis": diagnosis or cleaned, "actions": actions}
+
+
+async def diagnose(project, model_override: str | None = None) -> dict:
+    """流水线失败后自动诊断，返回 {diagnosis, actions}。"""
+    from src.core.llm_client import create_llm
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    if not getattr(project, "assistant_enabled", True):
+        return {
+            "diagnosis": "（总大脑 AI 已关闭，无法自动诊断。可在助手页开启。）",
+            "actions": [],
+        }
+    context = build_context(project)
+    system = (
+        DIAGNOSE_TEMPLATE
+        .replace("{book}", project.name)
+        .replace("{context}", context)
+    )
+    model = model_override or getattr(project, "assistant_model", "") or "zhipu:glm-4.6"
+    try:
+        llm = create_llm(streaming=False, model_override=model)
+    except Exception:
+        llm = create_llm(streaming=False)
+    try:
+        resp = await llm.ainvoke([
+            SystemMessage(content=system),
+            HumanMessage(content="请诊断当前失败并给出修复建议。"),
+        ])
+        text = str(resp.content or "")
+    except Exception as exc:
+        logger.exception("总大脑诊断失败")
+        return {"diagnosis": f"（诊断调用失败：{exc}）", "actions": []}
+    parsed = _parse_diagnose_output(text)
+    return {"diagnosis": parsed["diagnosis"] or "（模型未给出诊断）", "actions": parsed["actions"]}
+
+
+_NODE_EDIT_FIELDS = {"first_message", "system_prompt_template", "label", "model_override"}
+
+
+def apply_workflow_node_update(manager, arguments: dict) -> dict:
+    """修改工作流某节点的提示词/参数/标签（读取→打补丁→校验→保存）。"""
+    workflow_id = str(arguments.get("workflow_id", "")).strip()
+    node_id = str(arguments.get("node_id", "")).strip()
+    field = str(arguments.get("field", "")).strip()
+    new_value = arguments.get("new_value")
+    reason = str(arguments.get("reason", "")).strip()
+    if not workflow_id or not node_id or not field:
+        return {"success": False, "message": "缺少 workflow_id / node_id / field"}
+
+    # node_params.<key> 形式允许改脚本参数
+    node_params_key = None
+    if field.startswith("node_params."):
+        node_params_key = field.split(".", 1)[1]
+        if not node_params_key:
+            return {"success": False, "message": "node_params 键名不能为空"}
+    elif field not in _NODE_EDIT_FIELDS:
+        return {
+            "success": False,
+            "message": f"不允许修改字段 {field}；允许：first_message / system_prompt_template / label / model_override / node_params.<键>",
+        }
+
+    wf_data = manager.get_workflow(workflow_id)
+    if wf_data is None:
+        return {"success": False, "message": f"工作流不存在: {workflow_id}"}
+    definition = dict(wf_data["definition"])
+    nodes = definition.get("nodes", [])
+    target = next((n for n in nodes if n.get("id") == node_id), None)
+    if target is None:
+        return {
+            "success": False,
+            "message": f"工作流 {workflow_id} 中不存在节点 {node_id}",
+        }
+
+    if isinstance(new_value, str):
+        new_value = new_value.strip()
+    old_value = target.get(field)
+    if node_params_key is not None:
+        params = target.setdefault("node_params", {})
+        old_value = params.get(node_params_key)
+        params[node_params_key] = new_value
+    else:
+        target[field] = new_value
+
+    validation = manager.validate_workflow(definition)
+    if not validation.get("valid"):
+        errors = "\n".join(validation.get("errors", ["校验失败"]))
+        return {"success": False, "message": f"修改后工作流校验不通过：{errors}"}
+
+    result = manager.update_workflow(workflow_id, definition)
+    if result is None:
+        return {"success": False, "message": "保存工作流失败"}
+    return {
+        "success": True,
+        "message": f"已更新 {workflow_id} 节点 {node_id} 的 {field}（版本 {result['definition'].get('version')}）",
+        "workflow_id": workflow_id,
+        "node_id": node_id,
+        "field": field,
+        "old_value": str(old_value)[:500] if old_value is not None else "",
+        "new_value": str(new_value)[:500],
+        "reason": reason,
+    }
 
 
 _WRITE_INTENT_RE = re.compile(r"(写|重写|改写|生成|续写).{0,12}?(第\s*(\d+)\s*章|本章|正文|章节)")

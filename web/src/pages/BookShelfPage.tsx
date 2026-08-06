@@ -3,7 +3,7 @@
  * 书架（作品列表/新建）→ 进书后 7 个分页（总览/世界观/角色/大纲章节/演绎/流水线/工作流）。
  * 第一迭代为静态关联：书里能看到角色、演绎记录、章节，不做动态闭环。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpenText, Plus, Play, RotateCcw, Square, Download,
   FolderOpen, FileText, ArrowLeft, Loader2, Trash2, CheckCircle2,
@@ -43,6 +43,8 @@ interface NovelProject {
   character_ids: string[];
   theater_session_ids: string[];
   skill_ids: string[];
+  assistant_enabled: boolean;
+  assistant_model: string;
   created_at: string;
   updated_at: string;
   status: "idle" | "running" | "completed" | "failed" | "stopped";
@@ -163,10 +165,12 @@ export default function BookShelfPage() {
   const [asstMsgs, setAsstMsgs] = useState<{ role: string; content: string }[]>([]);
   const [asstInput, setAsstInput] = useState("");
   const [asstBusy, setAsstBusy] = useState(false);
-  const [pendingAction, setPendingAction] = useState<{ operation: string; arguments: Record<string, unknown>; reply: string } | null>(null);
+  const [pendingActions, setPendingActions] = useState<{ operation: string; arguments: Record<string, unknown>; reply: string }[]>([]);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string; tags: string[] }[]>([]);
   const [skillDraft, setSkillDraft] = useState<string[]>([]);
+  const [models, setModels] = useState<{ value: string; label: string }[]>([]);
+  const lastDiagRef = useRef("");
 
   const selected = useMemo(
     () => projects.find((p) => p.project_id === selectedId) || null,
@@ -203,15 +207,56 @@ export default function BookShelfPage() {
   }, [fetchProjects]);
 
   useEffect(() => {
+    fetch("/api/models/all")
+      .then((r) => r.json())
+      .then((d) => setModels(d.models || []))
+      .catch(() => { /* ignore */ });
+  }, []);
+
+  useEffect(() => {
     if (selectedId) {
       setContent(null);
       fetchContent(selectedId);
       setAsstMsgs([]);
-      setPendingAction(null);
+      setPendingActions([]);
+      lastDiagRef.current = "";
     } else {
       setContent(null);
     }
   }, [selectedId, fetchContent]);
+
+  // 流水线失败 → 自动诊断 + 修复建议（每个失败签名只诊断一次）
+  useEffect(() => {
+    if (!selected || selected.status !== "failed") return;
+    const failedStep = selected.steps.find((s) => s.status === "failed");
+    const key = `${selected.error || ""}|${failedStep?.error || ""}`;
+    if (!key || lastDiagRef.current === key) return;
+    lastDiagRef.current = key;
+    (async () => {
+      try {
+        const res = await fetch(`/api/assistant/projects/${selected.project_id}/diagnose`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "诊断失败");
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `🧠 自动诊断：${data.diagnosis}` }]);
+        if (Array.isArray(data.actions) && data.actions.length) {
+          setPendingActions((prev) => [
+            ...prev,
+            ...data.actions.map((a: { operation: string; arguments: Record<string, unknown>; explain?: string; reason?: string }) => ({
+              operation: a.operation,
+              arguments: a.arguments || {},
+              reply: a.explain || a.reason || "修复建议",
+            })),
+          ]);
+        }
+      } catch {
+        /* 诊断失败不阻塞 */
+      }
+    })();
+  }, [selected]);
 
   // 实时刷新：连跑过程每步推送 novel_pipeline_update
   useWebSocket({
@@ -492,7 +537,7 @@ export default function BookShelfPage() {
     setAsstInput("");
     setAsstMsgs((prev) => [...prev, { role: "user", content: userMsg }]);
     setAsstBusy(true);
-    setPendingAction(null);
+    setPendingActions([]);
     try {
       const res = await fetch(`/api/assistant/projects/${selected.project_id}/chat`, {
         method: "POST",
@@ -503,7 +548,7 @@ export default function BookShelfPage() {
       if (!res.ok) throw new Error(data.detail || "助手调用失败");
       setAsstMsgs((prev) => [...prev, { role: "assistant", content: data.reply || "（无回复）" }]);
       if (data.action) {
-        setPendingAction({ operation: data.action.operation, arguments: data.action.arguments || {}, reply: data.reply || "" });
+        setPendingActions([{ operation: data.action.operation, arguments: data.action.arguments || {}, reply: data.reply || "" }]);
       }
     } catch (e) {
       setAsstMsgs((prev) => [...prev, { role: "assistant", content: `（调用失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
@@ -512,24 +557,46 @@ export default function BookShelfPage() {
     }
   };
 
-  const confirmAction = async () => {
-    if (!selected || !pendingAction) return;
+  const confirmAction = async (action: { operation: string; arguments: Record<string, unknown>; reply: string }) => {
+    if (!selected) return;
     setAsstBusy(true);
     try {
       const res = await fetch(`/api/assistant/projects/${selected.project_id}/actions/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation: pendingAction.operation, arguments: pendingAction.arguments }),
+        body: JSON.stringify({ operation: action.operation, arguments: action.arguments }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "执行失败");
       showMsg(data.message || "动作已执行");
-      setPendingAction(null);
+      setPendingActions((prev) => prev.filter((a) => a !== action));
+      if (data.operation === "workflow_update_node") {
+        setAsstMsgs((prev) => [
+          ...prev,
+          { role: "assistant", content: `✅ 工作流已更新：${data.workflow_id} / ${data.node_id} / ${data.field}（${data.reason || ""}）` },
+        ]);
+      }
       await fetchContent(selected.project_id);
     } catch (e) {
       showMsg(e instanceof Error ? e.message : "执行失败");
     } finally {
       setAsstBusy(false);
+    }
+  };
+
+  const saveAssistantSettings = async (enabled: boolean, model: string) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/assistant/projects/${selected.project_id}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assistant_enabled: enabled, assistant_model: model }),
+      });
+      if (!res.ok) throw new Error("保存失败");
+      await fetchContent(selected.project_id);
+      showMsg(enabled ? "总大脑 AI 已接入" : "总大脑 AI 已关闭");
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "保存失败");
     }
   };
 
@@ -565,9 +632,38 @@ export default function BookShelfPage() {
 
   const renderAssistant = () => {
     const mountedSkills = content?.project.skill_ids || [];
-    const action = pendingAction;
+    const enabled = content?.project.assistant_enabled !== false;
+    const model = content?.project.assistant_model || "";
     return (
       <div className="flex flex-col h-full min-h-0">
+        {/* 总大脑设置：AI 开关 + 模型 */}
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-white/5 bg-slate-900/60 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => saveAssistantSettings(!enabled, model)}
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
+              enabled ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "bg-white/5 text-slate-400 border border-white/10"
+            }`}
+            aria-pressed={enabled}
+          >
+            {enabled ? "AI 已接入" : "AI 未接入"}
+          </button>
+          <label className="flex items-center gap-1.5 text-xs text-slate-400">
+            模型
+            <select
+              className="rounded-md border border-white/10 bg-slate-950 px-2 py-1 text-xs outline-none focus:border-amber-500"
+              value={model || "zhipu:glm-4.6"}
+              onChange={(e) => saveAssistantSettings(enabled, e.target.value)}
+            >
+              {models.length === 0 && <option value="zhipu:glm-4.6">zhipu:glm-4.6（默认）</option>}
+              {models.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <span className="text-xs text-slate-600">总大脑会读全书上下文、改工作流节点、失败自动诊断</span>
+        </div>
+
         {/* 挂载的 Skills */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="text-xs text-slate-500">写作风格：</span>
@@ -589,11 +685,11 @@ export default function BookShelfPage() {
           </button>
         </div>
 
-        {/* 动作提案卡 */}
-        {action && (
-          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+        {/* 动作提案卡（可多个） */}
+        {pendingActions.map((action, ai) => (
+          <div key={ai} className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
             <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
-              <Brain size={15} aria-hidden="true" /> 助手提案：{action.operation === "chapter_body_update" ? "写入章节正文" : action.operation === "run_step" ? "运行流水线步骤" : action.operation}
+              <Brain size={15} aria-hidden="true" /> 助手提案：{action.operation === "chapter_body_update" ? "写入章节正文" : action.operation === "run_step" ? "运行流水线步骤" : action.operation === "workflow_update_node" ? "修改工作流节点" : action.operation}
             </div>
             <p className="mt-1 text-xs text-slate-400">{action.reply}</p>
             {action.operation === "chapter_body_update" && (
@@ -609,25 +705,35 @@ export default function BookShelfPage() {
             {action.operation === "run_step" && (
               <div className="mt-1 text-xs text-slate-400">步骤：{String(action.arguments.step_key || "")}</div>
             )}
+            {action.operation === "workflow_update_node" && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <div>工作流：{String(action.arguments.workflow_id || "")}</div>
+                <div>节点：{String(action.arguments.node_id || "")}　字段：{String(action.arguments.field || "")}</div>
+                <div className="rounded bg-slate-950/60 p-2 mt-1">
+                  <div className="mb-1 text-slate-500">新值（{String(action.arguments.new_value || "").length} 字）：</div>
+                  <pre className="whitespace-pre-wrap text-slate-200 max-h-40 overflow-y-auto">{String(action.arguments.new_value || "")}</pre>
+                </div>
+              </div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 type="button"
                 disabled={asstBusy}
-                onClick={confirmAction}
+                onClick={() => confirmAction(action)}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white disabled:opacity-50"
               >
                 <Check size={14} aria-hidden="true" /> 确认执行
               </button>
               <button
                 type="button"
-                onClick={() => setPendingAction(null)}
+                onClick={() => setPendingActions((prev) => prev.filter((a) => a !== action))}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
               >
                 <X size={14} aria-hidden="true" /> 拒绝
               </button>
             </div>
           </div>
-        )}
+        ))}
 
         {/* 对话区 */}
         <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-white/5 bg-slate-900/40 p-4 space-y-3">
@@ -638,9 +744,6 @@ export default function BookShelfPage() {
                 我是这本书的总大脑。可以问我书的状态、世界观、角色、大纲；
                 也可以让我"写第1章"、"把第2章改得更紧张"——涉及写入的内容会先给你确认。
               </p>
-              {content?.project.steps.length === 0 && (
-                <p className="text-xs text-slate-600">提示：先在「角色」页加人、在「流水线」页建世界观，我会更了解这本书。</p>
-              )}
             </div>
           ) : (
             asstMsgs.map((m, i) => (
@@ -673,7 +776,7 @@ export default function BookShelfPage() {
           />
           <button
             type="button"
-            disabled={asstBusy || !asstInput.trim()}
+            disabled={asstBusy || !asstInput.trim() || !enabled}
             onClick={sendAssistant}
             className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
