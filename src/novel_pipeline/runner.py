@@ -69,6 +69,66 @@ class NovelPipelineRunner:
         self._running[project.project_id] = coro
         return {"success": True, "message": "小说连跑已启动", "project_id": project.project_id}
 
+    def start_single(self, project: NovelProject, step_key: str) -> dict:
+        """只运行流水线中的某一个步骤（如：世界观构建、卷纲近纲规划），
+        在作品工作台里原地执行，不用跳到流水线页。"""
+        if self.is_running(project.project_id):
+            return {
+                "success": False,
+                "message": "当前已有任务在运行，请先停止",
+            }
+        step = next((s for s in project.steps if s.key == step_key), None)
+        if step is None:
+            return {"success": False, "message": f"未知步骤: {step_key}"}
+        step.status = "pending"
+        step.task_id = ""
+        step.error = ""
+        project.status = "running"
+        project.error = ""
+        project.current_step = step_key
+        save_project(project)
+        self._emit(project)
+        coro = asyncio.create_task(self._run_single_coro(project, step))
+        self._running[project.project_id] = coro
+        return {
+            "success": True,
+            "message": f"已开始：{step.label}",
+            "project_id": project.project_id,
+            "step_key": step_key,
+        }
+
+    async def _run_single_coro(self, project: NovelProject, step: PipelineStep) -> None:
+        """单步运行：跑完把项目状态恢复为 idle（不是整书完成）。"""
+        try:
+            try:
+                task_id = await self._run_one(project, step)
+                step.status = "completed"
+                step.error = ""
+                step.completed_at = _now_iso()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                step.status = "failed"
+                step.error = str(exc)[:2000]
+                step.completed_at = _now_iso()
+                project.status = "failed"
+                project.error = f"{step.label} 失败：{step.error}"
+                save_project(project)
+                self._emit(project)
+                return
+            project.status = "idle"
+            project.error = ""
+            project.current_step = ""
+            save_project(project)
+            self._emit(project)
+        except asyncio.CancelledError:
+            project.status = "stopped"
+            save_project(project)
+            self._emit(project)
+            raise
+        finally:
+            self._running.pop(project.project_id, None)
+
     async def stop(self, project_id: str) -> dict:
         task = self._running.get(project_id)
         project = self._load(project_id)

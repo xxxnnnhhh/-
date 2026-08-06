@@ -50,6 +50,10 @@ class RunRequest(BaseModel):
     reset: bool = Field(default=False, description="True=清空步骤从零重跑；False=从失败处继续")
 
 
+class RunStepRequest(BaseModel):
+    step_key: str = Field(description="要单独运行的步骤 key，如 build / outline / chapter-0001-mvp")
+
+
 class AddCharacterRequest(BaseModel):
     character_id: str = Field(description="人物库角色 ID")
 
@@ -283,6 +287,19 @@ async def run_pipeline(project_id: str, request: Request, body: RunRequest = Run
         raise HTTPException(status_code=404, detail="小说项目不存在")
     runner = _get_runner(request)
     result = runner.start(project, reset=body.reset)
+    if not result["success"]:
+        raise HTTPException(status_code=409, detail=result["message"])
+    return result
+
+
+@router.post("/{project_id}/run-step")
+async def run_single_step(project_id: str, request: Request, body: RunStepRequest):
+    """只运行流水线中的某一个步骤（作品工作台原地生成用）。"""
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    runner = _get_runner(request)
+    result = runner.start_single(project, body.step_key)
     if not result["success"]:
         raise HTTPException(status_code=409, detail=result["message"])
     return result

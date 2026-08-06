@@ -292,6 +292,29 @@ export default function BookShelfPage() {
     }
   };
 
+  const runStep = async (stepKey: string) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/run-step`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step_key: stepKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "启动失败");
+      showMsg(data.message || "已开始生成");
+      await fetchProjects();
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "启动失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isStepRunning = (stepKey: string) =>
+    selected?.status === "running" && selected.current_step === stepKey;
+
   const handleStop = async () => {
     if (!selected) return;
     setBusy(true);
@@ -490,6 +513,7 @@ export default function BookShelfPage() {
 
   const renderWorld = () => {
     const wf = content?.world_foundation || "";
+    const generating = isStepRunning("build");
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -507,8 +531,25 @@ export default function BookShelfPage() {
             {wf}
           </pre>
         ) : (
-          <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
-            世界观尚未生成。去「流水线」页跑一次「世界观构建」，这里就会展示六维世界规则。
+          <div className="rounded-lg border border-dashed border-white/10 p-10 text-center">
+            {generating ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-amber-300">
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                正在生成六维世界观（核心法则→时空地理→社会权力→历史文化→存在基础→信息传播）…
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500">世界观尚未生成。</p>
+                <button
+                  type="button"
+                  disabled={busy || selected?.status === "running"}
+                  onClick={() => runStep("build")}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50"
+                >
+                  <Sparkles size={15} aria-hidden="true" /> 一键生成世界观
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -575,6 +616,7 @@ export default function BookShelfPage() {
 
   const renderOutline = () => {
     const chapters = content?.chapters || [];
+    const generatingOutline = isStepRunning("outline");
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -590,11 +632,37 @@ export default function BookShelfPage() {
             </div>
           ))}
         </div>
+        {!content?.outline?.volume_outline && (
+          <div className="rounded-lg border border-dashed border-white/10 p-4 text-center">
+            {generatingOutline ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-amber-300">
+                <Loader2 size={15} className="animate-spin" aria-hidden="true" /> 正在生成卷纲与近纲…
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={busy || selected?.status === "running"}
+                onClick={() => runStep("outline")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white transition-colors disabled:opacity-50"
+              >
+                <Sparkles size={14} aria-hidden="true" /> 生成卷纲近纲
+              </button>
+            )}
+          </div>
+        )}
         <div>
           <div className="mb-2 text-sm font-medium text-slate-300">章节</div>
           {chapters.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">
-              还没有章节，去「流水线」一键连跑生成。
+            <div className="rounded-lg border border-dashed border-white/10 p-6 text-center">
+              <p className="text-sm text-slate-500">还没有章节。</p>
+              <button
+                type="button"
+                disabled={busy || selected?.status === "running"}
+                onClick={() => handleRun(false)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 text-sm text-white transition-colors disabled:opacity-50"
+              >
+                <Play size={14} aria-hidden="true" /> 一键连跑生成全部章节
+              </button>
             </div>
           ) : (
             <div className="space-y-2">
