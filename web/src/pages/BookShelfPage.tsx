@@ -179,6 +179,7 @@ export default function BookShelfPage() {
   const [skillDraft, setSkillDraft] = useState<string[]>([]);
   const [models, setModels] = useState<{ value: string; label: string }[]>([]);
   const lastDiagRef = useRef("");
+  const lastStatusRef = useRef("");
 
   const selected = useMemo(
     () => projects.find((p) => p.project_id === selectedId) || null,
@@ -228,6 +229,7 @@ export default function BookShelfPage() {
       setAsstMsgs([]);
       setPendingActions([]);
       lastDiagRef.current = "";
+      lastStatusRef.current = "";
     } else {
       setContent(null);
     }
@@ -277,6 +279,12 @@ export default function BookShelfPage() {
         setConnected(true);
         fetchProjects();
         if (selectedId) fetchContent(selectedId);
+        if (evt.status && evt.status !== lastStatusRef.current) {
+          if (evt.status === "completed") {
+            setAsstMsgs((prev) => [...prev, { role: "assistant", content: "✅ 流水线已完成，我看看产出…（可在「大纲章节」页查看章节）" }]);
+          }
+          lastStatusRef.current = evt.status;
+        }
         if (evt.status === "completed" || evt.status === "failed" || evt.status === "stopped") {
           setTimeout(() => setConnected(false), 3000);
         }
@@ -586,7 +594,9 @@ export default function BookShelfPage() {
       } else if (data.result) {
         setAsstMsgs((prev) => [...prev, { role: "assistant", content: String(data.result) }]);
       } else if (data.operation === "run_pipeline") {
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: "🚀 整条流水线已串起来开跑，我盯着进度，有失败我会自动诊断。" }]);
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: "🚀 整条流水线已串起来开跑，正在后台运行（世界观→角色→故事→卷纲→逐章…），完成或失败我会告诉你。" }]);
+      } else if (data.operation === "run_step") {
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `✅ 已启动 ${String(action.arguments.step_key || "")}，正在后台运行，失败我会自动诊断。` }]);
       }
       await fetchContent(selected.project_id);
     } catch (e) {

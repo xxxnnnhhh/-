@@ -239,16 +239,89 @@ def _parse_assistant_output(text: str) -> dict:
         try:
             data = json.loads(m.group(0))
         except json.JSONDecodeError:
+            mixed = _extract_action_from_mixed(cleaned)
+            if mixed is not None:
+                reply = _strip_action_text(cleaned)
+                return {"reply": reply or "（已识别动作）", "action": mixed}
             return {"reply": cleaned, "action": None}
     if not isinstance(data, dict):
+        mixed = _extract_action_from_mixed(cleaned)
+        if mixed is not None:
+            return {"reply": _strip_action_text(cleaned) or "（已识别动作）", "action": mixed}
         return {"reply": cleaned, "action": None}
     reply = str(data.get("reply") or data.get("message") or "").strip()
     action = data.get("action")
     if action is None:
+        mixed = _extract_action_from_mixed(cleaned)
+        if mixed is not None:
+            return {"reply": reply or _strip_action_text(cleaned) or "（已识别动作）", "action": mixed}
         return {"reply": reply or cleaned, "action": None}
     if not isinstance(action, dict):
         return {"reply": reply or cleaned, "action": None}
     return {"reply": reply or cleaned, "action": action}
+
+
+_ACTION_JSON_RE = re.compile(r'\{[^{}]*"operation"\s*:\s*"[a-z_]+"[^{}]*\}')
+_KNOWN_OPS = ("run_pipeline", "describe_workflows", "run_step", "chapter_body_update", "workflow_update_node")
+
+
+def _extract_action_from_mixed(text: str) -> dict | None:
+    """从"回复+JSON 混杂"的输出里提取动作（弱模型兜底）。"""
+    m = _ACTION_JSON_RE.search(text)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, dict) and data.get("operation"):
+                return data
+        except json.JSONDecodeError:
+            pass
+    # 裸操作名 + 后面的 JSON 参数（run_step {"step_key": "build"}）
+    op = re.search(r'"operation"\s*[:：=]\s*"?([a-z_]+)"?', text)
+    op_name = op.group(1) if op else None
+    if op_name is None:
+        for known in _KNOWN_OPS:
+            if re.search(r"(?<![A-Za-z_])" + known + r"(?![A-Za-z_])", text):
+                op_name = known
+                break
+    if op_name:
+        args: dict = {}
+        rest = text[text.find(op_name):]
+        jm = re.search(r"\{.*\}", rest, re.DOTALL)
+        if jm:
+            try:
+                parsed = json.loads(jm.group(0))
+                if isinstance(parsed, dict):
+                    args = parsed
+            except json.JSONDecodeError:
+                pass
+        if not args:
+            for key, pattern in (
+                ("step_key", r'"step_key"\s*[:：]\s*"([^"]+)"'),
+                ("chapter_number", r'"chapter_number"\s*[:：]\s*"?(\d+)"?'),
+                ("workflow_id", r'"workflow_id"\s*[:：]\s*"([^"]+)"'),
+                ("node_id", r'"node_id"\s*[:：]\s*"([^"]+)"'),
+                ("field", r'"field"\s*[:：]\s*"([^"]+)"'),
+                ("new_value", r'"new_value"\s*[:：]\s*"([^"]*)"'),
+                ("body", r'"body"\s*[:：]\s*"([^"]*)"'),
+            ):
+                km = re.search(pattern, rest)
+                if km:
+                    args[key] = km.group(1)
+        return {"operation": op_name, "arguments": args}
+    return None
+
+
+def _strip_action_text(text: str) -> str:
+    """去掉回复里夹带的 JSON/动作残片，保留可读文字。"""
+    cleaned = _ACTION_JSON_RE.sub("", text)
+    cleaned = re.sub(
+        r"\b(?:run_step|chapter_body_update|workflow_update_node|describe_workflows|run_pipeline)\b\s*[：:（(]?[^。\n]*",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"\{[^{}]*\}", "", cleaned)
+    cleaned = re.sub(r"\s*\n\s*", "\n", cleaned).strip()
+    return cleaned
 
 
 SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通读全书、指挥创作的写作助手。
@@ -287,6 +360,7 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 chapter-0001-mvp（第1章生产）、chapter-0001-post-hoc（后验）、chapter-0001-polish（润色），依此类推。
 
 注意：章节正文只出现在 action.arguments.body；回复必须符合挂载的写作风格 Skills；修改工作流前先确认节点真实存在。
+重要：你的 reply 里禁止出现任何 JSON、大括号、操作名（如 run_step / chapter_body_update）——它们只能放在 action 字段里。
 """
 
 
