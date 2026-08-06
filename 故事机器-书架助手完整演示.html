@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>故事机器 · 书架与总大脑（完整演示）</title>
+<style>
+  :root {
+    --bg: #020617; --panel: #0f172a; --panel2: #1e293b; --line: rgba(255,255,255,.07);
+    --text: #e2e8f0; --muted: #94a3b8; --dim: #64748b;
+    --amber: #f59e0b; --amber2: #fbbf24; --indigo: #6366f1; --green: #34d399;
+    --red: #f87171; --pink: #f472b6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--text); overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  /* 顶部导航 */
+  header {
+    display: flex; align-items: center; gap: 4px; height: 52px; padding: 0 16px;
+    background: rgba(15,23,42,.85); border-bottom: 1px solid var(--line); flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; margin-right: 18px; color: var(--amber2); font-weight: 700; }
+  .logo { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg,#f59e0b,#92400e); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; }
+  .nav-btn { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  .nav-btn:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .nav-btn.on { background: rgba(245,158,11,.15); color: var(--amber2); }
+  .nav-btn.demo { opacity: .45; }
+  .spacer { flex: 1; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  /* 主体 */
+  main { flex: 1; display: flex; min-height: 0; }
+  /* 书架 */
+  .shelf { flex: 1; overflow-y: auto; padding: 28px 32px; }
+  .shelf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .shelf-head h1 { font-size: 22px; }
+  .shelf-head p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .btn { border: 0; border-radius: 10px; padding: 9px 16px; font-size: 14px; cursor: pointer; background: var(--amber); color: #fff; font-weight: 600; }
+  .btn:hover { background: var(--amber2); }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  .btn.ghost:hover { background: rgba(255,255,255,.06); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+  .btn.indigo { background: var(--indigo); }
+  .btn.red { background: transparent; border: 1px solid rgba(248,113,113,.4); color: var(--red); }
+  .books { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 16px; }
+  .book {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+    cursor: pointer; transition: .15s; text-align: left;
+  }
+  .book:hover { border-color: rgba(245,158,11,.35); transform: translateY(-2px); }
+  .book h3 { font-size: 17px; }
+  .book .meta { color: var(--dim); font-size: 12px; margin-top: 4px; }
+  .book .chips { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .chip { background: rgba(255,255,255,.06); color: var(--muted); padding: 3px 9px; border-radius: 99px; font-size: 12px; }
+  .chip.amber { background: rgba(245,158,11,.12); color: var(--amber2); }
+  .chip.green { background: rgba(52,211,153,.12); color: var(--green); }
+  .book .premise { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.5; }
+  /* 工作台 */
+  .workspace { flex: 1; display: flex; min-height: 0; }
+  .tabs {
+    width: 168px; border-right: 1px solid var(--line); overflow-y: auto; padding: 10px 0; flex-shrink: 0;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 18px; border: 0;
+    background: transparent; color: var(--muted); font-size: 14px; cursor: pointer; text-align: left;
+  }
+  .tab:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .tab.on { background: rgba(245,158,11,.12); color: var(--amber2); border-right: 3px solid var(--amber); }
+  .tab .ico { width: 18px; text-align: center; }
+  .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+  .wb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 12px; flex-wrap: wrap; }
+  .wb-head h2 { font-size: 19px; }
+  .wb-head .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .stat .k { color: var(--dim); font-size: 12px; }
+  .stat .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card + .card { margin-top: 12px; }
+  .card h4 { font-size: 14px; margin-bottom: 8px; }
+  .card p, .card li { color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 40px; text-align: center; color: var(--dim); font-size: 13px; }
+  /* 助手 */
+  .chat { display: flex; flex-direction: column; height: calc(100vh - 140px); min-height: 420px; }
+  .chat-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chat-scroll { flex: 1; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .msg { max-width: 82%; margin-bottom: 12px; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { background: rgba(245,158,11,.18); margin-left: auto; }
+  .msg.ai { background: #1e293b; }
+  .msg.sys { background: rgba(52,211,153,.1); color: var(--green); font-size: 12px; width: 100%; }
+  .msg.err { background: rgba(248,113,113,.12); color: var(--red); }
+  .action-card { background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.3); border-radius: 12px; padding: 14px; margin: 10px 0; }
+  .action-card .t { color: var(--amber2); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .action-card .d { color: var(--muted); font-size: 12px; line-height: 1.7; }
+  .action-card pre { background: rgba(2,6,23,.5); border-radius: 8px; padding: 10px; font-size: 12px; color: var(--text); max-height: 180px; overflow-y: auto; white-space: pre-wrap; margin: 8px 0; }
+  .action-card .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .chat-input { display: flex; gap: 8px; margin-top: 10px; }
+  .chat-input input { flex: 1; background: #020617; border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; color: var(--text); font-size: 14px; outline: none; }
+  .chat-input input:focus { border-color: var(--amber); }
+  .typing::after { content: "▍"; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  /* 流水线 */
+  .step { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+  .step .no { width: 24px; color: var(--dim); font-size: 12px; text-align: center; }
+  .step .st { width: 18px; text-align: center; font-size: 15px; }
+  .step .info { flex: 1; }
+  .step .label { font-size: 14px; }
+  .step .wf { color: var(--dim); font-size: 11px; }
+  .step .status { font-size: 12px; }
+  .st-done { color: var(--green); } .st-run { color: var(--amber2); } .st-wait { color: var(--dim); } .st-fail { color: var(--red); }
+  .bar { height: 6px; background: rgba(255,255,255,.07); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg,#f59e0b,#fbbf24); width: 0; transition: width .4s; }
+  /* 角色卡 */
+  .char-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(240px,1fr)); gap: 12px; }
+  .char-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .char-card h4 { font-size: 14px; }
+  .char-card .tags { display: flex; gap: 5px; margin: 8px 0; flex-wrap: wrap; }
+  .tag { background: rgba(255,255,255,.06); color: var(--muted); font-size: 11px; padding: 2px 8px; border-radius: 99px; }
+  .char-card .desc { color: var(--dim); font-size: 12px; line-height: 1.6; }
+  .kv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .kv span { background: rgba(255,255,255,.05); color: var(--muted); font-size: 11px; padding: 2px 7px; border-radius: 6px; }
+  /* 章节 */
+  .chap { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; margin-bottom: 8px; }
+  .chap .n { font-size: 14px; width: 70px; }
+  .chap .st2 { font-size: 12px; padding: 2px 8px; border-radius: 99px; }
+  .st2.ok { background: rgba(52,211,153,.12); color: var(--green); }
+  .st2.wait { background: rgba(255,255,255,.06); color: var(--dim); }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal.show { display: flex; }
+  .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: min(720px,92vw); max-height: 82vh; display: flex; flex-direction: column; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .modal-body { padding: 16px 18px; overflow-y: auto; }
+  .modal-body pre { white-space: pre-wrap; font-size: 13px; color: var(--text); line-height: 1.8; font-family: inherit; }
+  .close { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+  .close:hover { color: var(--text); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.7; }
+  .wf-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 12px; }
+  .wf-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .wf-card h4 { font-size: 14px; }
+  .wf-card p { color: var(--dim); font-size: 12px; margin-top: 4px; line-height: 1.6; }
+  .pre { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; color: var(--muted); font-size: 13px; line-height: 1.8; white-space: pre-wrap; max-height: 420px; overflow-y: auto; }
+  .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 13px; display: none; z-index: 60; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast.show { display: block; animation: fadein .2s; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><span class="logo">故</span>故事机器 <span style="color:var(--dim);font-weight:400;font-size:12px;">完整演示</span></div>
+    <button class="nav-btn" data-tab="chat">对话</button>
+    <button class="nav-btn" data-tab="dashboard">看板</button>
+    <button class="nav-btn" data-tab="graph">图谱</button>
+    <button class="nav-btn" data-tab="theater">剧场</button>
+    <button class="nav-btn" data-tab="characters">人物库</button>
+    <button class="nav-btn" data-tab="orchestration">编排</button>
+    <button class="nav-btn" data-tab="workflow">工作流</button>
+    <button class="nav-btn on" data-tab="bookshelf">书架</button>
+    <button class="nav-btn" data-tab="cron">定时</button>
+    <button class="nav-btn" data-tab="skills">Skills</button>
+    <button class="nav-btn" data-tab="rules">Rules</button>
+    <button class="nav-btn" data-tab="settings">配置</button>
+    <button class="nav-btn" data-tab="plugins">插件</button>
+    <div class="spacer"></div>
+    <div class="conn"><span class="dot"></span>已连接</div>
+  </header>
+  <main id="main"></main>
+</div>
+<div class="modal" id="modal"><div class="modal-box"><div class="modal-head"><h3 id="modal-title"></h3><button class="close" onclick="closeModal()">关闭</button></div><div class="modal-body"><pre id="modal-body"></pre></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ 演示数据 ============ */
+const WORKFLOWS = [
+  { id:"bishu-novel-build", label:"世界观构建", desc:"六维世界规则 → world_foundation.md" },
+  { id:"bishu-novel-character", label:"角色创建", desc:"骨架/信念/深层/声线 → 角色档案" },
+  { id:"bishu-novel-story-plan", label:"故事宏观规划", desc:"故事引擎 + 风格档案" },
+  { id:"bishu-novel-outline", label:"卷纲近纲规划", desc:"卷纲骨架 + 逐章简纲" },
+  { id:"bishu-novel-mvp", label:"章节生产", desc:"世界状态机 → 意图 → 大纲 → 成文" },
+  { id:"bishu-novel-post-hoc", label:"章节后验", desc:"伏笔/债务/一致性裁决" },
+  { id:"bishu-novel-polish", label:"章节润色", desc:"自审 → 人文化 → 专业润色" },
+];
+const BOOKS = [
+  {
+    id:"b1", name:"天界", genre:"玄幻", language:"中文", chapters:[1,2,3],
+    premise:"被标价的衡民少年，身怀本源之种，在秩序与生灵的夹缝中逆天改命。",
+    status:"running", world:"已生成 6 维 · 3753 字", chars:2, theater:3, stepsDone:1, stepsTotal:13,
+    characters:[
+      { name:"阚衡", types:["剧情","战斗"], ratio:"本我40 自我40 超我20", stats:"力58 敏52 体60 智48 神55", desc:"被标价衡民，本源之种寄宿，沉默寡言，重情。" },
+      { name:"殷澈", types:["剧情","对话"], ratio:"本我30 自我45 超我25", stats:"力42 敏60 体45 智65 神58", desc:"黑市匠师之女，身怀谜团，聪慧敏锐，嘴硬心软。" },
+    ],
+    theater:[
+      { t:"雨夜破庙", n:12, time:"08-05 21:40" },
+      { t:"黑市夜谈", n:8, time:"08-05 20:12" },
+      { t:"宗门门前", n:15, time:"08-04 19:03" },
+    ],
+    outline:"卷纲：第一卷「被标价的人」——从黑市崛起，初识本源真相，埋下界膜渗透暗线。近纲：第1章旧仓压蛀 → 第2章黑炉 · 第3章追缉。",
+    worldText:"# 世界观基础\n\n## 一、核心法则\n> 本源之力，逆天改命，命由己造，道法自然。\n力量体系：本源之力来源于对本源的认知与掌握，分为九级三阶，使用代价为消耗自身生命力，边界限制为过度使用会导致生命力枯竭。\n\n## 二、时空地理\n世界分为四域：衡渊、裂谷、碎隙海、纳增港。界膜渗透：每隔十二年，裂谷深处会渗出界外之物。\n\n## 三、社会权力\n衡民制度：被标价者世代为奴；司命府掌碑林录削与检视符令。\n\n## 四、历史文化\n「旧仓压蛀」传说：三百年前匠师以命封蛀，后人只记得封条，忘了代价。\n\n## 五、存在基础\n元息：秩序/生灵/造物/虚无四大本源相生相消，循环链：秩序定规→生灵孕生→造物成形→朽坏归虚→虚无扰动再激生秩序。\n\n## 六、信息传播\n紧急军情与议会律令借秩序锚点链金鸣接力；商旅船舶沿本源物产线慢行，跨大陆消息传到偏远城镇需数周至数月。",
+  },
+  { id:"b2", name:"剑起沧澜", genre:"东方玄幻", language:"中文", chapters:[1],
+    premise:"废柴剑童觉醒上古剑魂，从宗门扫地开始，一剑一剑劈开天道。",
+    status:"idle", world:"尚未生成", chars:0, theater:0, stepsDone:0, stepsTotal:13,
+    characters:[], theater:[], outline:"尚未生成。", worldText:"（尚未生成，进入流水线跑一次「世界观构建」即可）",
+  },
+  { id:"b3", name:"雾港夜航", genre:"悬疑", language:"中文", chapters:[1],
+    premise:"雾港连续失踪案背后，是十年前沉船的秘密——船上的乘客从未下船。",
+    status:"failed", world:"已生成 6 维", chars:1, theater:0, stepsDone:4, stepsTotal:13,
+    characters:[{ name:"沈砚", types:["推理","对话"], ratio:"本我28 自我47 超我25", stats:"力45 敏55 体48 智70 神62", desc:"港务局档案员，直觉敏锐，怕水。" }],
+    theater:[], outline:"卷纲：第一卷「雾港档案」——三幕：失踪、沉船、真相。", worldText:"# 世界观基础\n## 一、核心法则\n雾港的雾不是天气，是“界限”的显影——十年前沉船撕开了它。",
+  },
+];
+const PIPELINE = [
+  { key:"build", label:"世界观构建", wf:"bishu-novel-build" },
+  { key:"character", label:"角色创建", wf:"bishu-novel-character" },
+  { key:"story-plan", label:"故事宏观规划", wf:"bishu-novel-story-plan" },
+  { key:"outline", label:"卷纲近纲规划", wf:"bishu-novel-outline" },
+  { key:"chapter-0001-mvp", label:"第1章 · 章节生产", wf:"bishu-novel-mvp", chapter:true },
+  { key:"chapter-0001-post-hoc", label:"第1章 · 章节后验", wf:"bishu-novel-post-hoc", chapter:true },
+  { key:"chapter-0001-polish", label:"第1章 · 章节润色", wf:"bishu-novel-polish", chapter:true },
+];
+const CHAPTERS = [ { n:1, status:"已生成", words:3264 }, { n:2, status:"待生成", words:0 }, { n:3, status:"待生成", words:0 } ];
+const CHAPTER_TEXT = "## 第 1 章 旧仓压蛀\n\n夜雨如晦，檐下铁马叮当。\n\n阚衡数着殷澈腕上黑纹蔓延到第几寸，数到第七寸时她灰瞳失焦，蛀发在纳增港黑市边缘的暗巷里。\n\n「你又压了一次。」他说。\n\n她没答，只是把掌心摊开：一道新裂痕从虎口爬到指根，像旧仓梁上经年的蛀线。\n\n「第七寸。」阚衡的声音很平，「这个月第七次。」\n\n殷澈终于抬眼，灰瞳里倒映着巷口提灯巡夜人的影子：「那东西在数我。」\n\n雨声里，黑市的灯火一盏接一盏地灭。只有更深处，某扇门后透出的一线光，像一只睁着的眼睛。\n\n——门后是什么，他们谁都没有问。";
+
+/* ============ 状态 ============ */
+let current = null; // 当前打开的书
+let tab = "overview";
+let assistant = []; // 助手消息
+let chatBusy = false;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const toast = (m) => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),2600); };
+function openModal(title, body){ $("#modal-title").textContent=title; $("#modal-body").textContent=body; $("#modal").classList.add("show"); }
+function closeModal(){ $("#modal").classList.remove("show"); }
+function openChapter(n){ openModal("第 "+n+" 章 正文", CHAPTER_TEXT); }
+
+/* ============ 导航 ============ */
+document.querySelectorAll(".nav-btn").forEach(b=>b.addEventListener("click",()=>{
+  if(b.dataset.tab==="bookshelf"){ document.querySelectorAll(".nav-btn").forEach(x=>x.classList.remove("on")); b.classList.add("on"); render(); }
+  else toast("演示版仅开放「书架」：这是完整应用的一个演示切片，其余页面见真实系统");
+}));
+
+/* ============ 渲染 ============ */
+function render(){
+  if(current) renderWorkspace(); else renderShelf();
+}
+function renderShelf(){
+  $("#main").innerHTML = `
+    <div class="shelf">
+      <div class="shelf-head">
+        <div><h1>我的书架</h1><p>作品卡片 · 点击进入作品工作台（总览/助手/世界观/角色/大纲章节/演绎/流水线/工作流）</p></div>
+        <button class="btn" onclick="toast('演示版：新建作品请使用完整系统')">＋ 新建作品</button>
+      </div>
+      <div class="books">
+        ${BOOKS.map(b=>`
+          <button class="book" onclick="openBook('${b.id}')">
+            <h3>《${b.name}》</h3>
+            <div class="meta">${b.genre} · ${b.language} · ${b.chapters.length} 章</div>
+            <div class="chips">
+              <span class="chip ${b.status==='running'?'amber':b.status==='completed'?'green':''}">${b.status==='running'?'● 连跑中':b.status==='failed'?'✕ 失败':b.status==='completed'?'✓ 已完成':'待开始'}</span>
+              <span class="chip">${b.chars} 角色</span><span class="chip">${b.theater.length} 演绎</span>
+              <span class="chip">${b.stepsDone}/${b.stepsTotal} 步</span>
+            </div>
+            <div class="premise">${esc(b.premise)}</div>
+          </button>`).join("")}
+      </div>
+      <div class="hint">💡 演示说明：这是一份可直接发给别人的完整交互版。进书后试「助手」页（说“串起来跑”或“写第1章”），或去「流水线」点「一键连跑」看模拟进度与自动诊断。真实系统在 localhost:8020。</div>
+    </div>`;
+}
+
+function openBook(id){ current = BOOKS.find(b=>b.id===id); tab="overview"; render(); }
+function backToShelf(){ current=null; render(); }
+
+function renderWorkspace(){
+  const b = current;
+  const TABS = [
+    ["overview","📋","总览"],["assistant","🧠","助手"],["world","🌍","世界观"],["cast","👥","角色"],
+    ["outline","📜","大纲章节"],["theater","🎭","演绎"],["pipeline","⚙️","流水线"],["workflow","🔗","工作流"],
+  ];
+  $("#main").innerHTML = `
+    <div class="workspace">
+      <div class="tabs">
+        <button class="tab" style="color:var(--amber2);font-weight:600;" onclick="backToShelf()">← 书架</button>
+        ${TABS.map(([id,ico,label])=>`<button class="tab ${tab===id?'on':''}" onclick="setTab('${id}')"><span class="ico">${ico}</span>${label}</button>`).join("")}
+      </div>
+      <div class="content">
+        <div class="wb-head">
+          <div><h2>《${b.name}》<span style="color:var(--dim);font-size:13px;"> · 作品工作台</span></h2><div class="sub">${b.genre} · ${b.language} · ${b.chapters.length} 章 · 状态：${b.status==='running'?'连跑中':b.status==='failed'?'失败':'待开始'}</div></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn sm ghost" onclick="toast('演示版只读')">导出</button>
+            <button class="btn sm" onclick="toast('演示版只读')">＋ 新建作品</button>
+          </div>
+        </div>
+        ${renderTab()}
+      </div>
+    </div>`;
+}
+function setTab(t){ tab=t; render(); if(t==="assistant") setTimeout(bootAssistant, 60); }
+
+function renderTab(){
+  const b=current;
+  switch(tab){
+    case "overview": return `
+      <div class="stat-grid">
+        <div class="stat"><div class="k">章节</div><div class="v">${CHAPTERS.filter(c=>c.status==='已生成').length} / ${b.chapters.length}</div></div>
+        <div class="stat"><div class="k">角色</div><div class="v">${b.characters.length}</div></div>
+        <div class="stat"><div class="k">演绎记录</div><div class="v">${b.theater.length}</div></div>
+        <div class="stat"><div class="k">流水线</div><div class="v">${b.stepsDone}/${b.stepsTotal} 步</div></div>
+      </div>
+      <div class="card"><h4>创意</h4><p>${esc(b.premise)}</p></div>
+      <div class="card"><h4>存储路径</h4>
+        <p>工作区（子工作流共享）：<code>E:\\DeterminFlowData\\novel-projects\\${b.id}\\workspace</code></p>
+        <p>E 盘存档：<code>E:\\故事机器\\小说存档\\《${b.name}》\\</code>（完整文本 + 章节分文件）</p>
+      </div>`;
+    case "assistant": return renderAssistant();
+    case "world": return `
+      <div class="card"><h4>世界观（流水线产出 · 第一版只读）</h4></div>
+      <div class="pre" style="margin-top:10px;">${esc(b.worldText)}</div>`;
+    case "cast": return `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="color:var(--muted);font-size:13px;">这本书关联的人物库角色（${b.characters.length}）</span>
+        <button class="btn sm" onclick="toast('演示版只读：从人物库添加在真实系统可用')">＋ 从人物库添加</button>
+      </div>
+      ${b.characters.length===0?'<div class="empty">还没有角色。点右上角「从人物库添加」。</div>':
+        `<div class="char-grid">${b.characters.map(c=>`
+          <div class="char-card"><h4>${c.name}</h4><div class="tags">${c.types.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
+          <div class="desc">${esc(c.desc)}</div><div class="kv"><span>${c.ratio}</span>${c.stats.split(" ").map(s=>`<span>${s}</span>`).join("")}</div></div>`).join("")}</div>`}`;
+    case "outline": return `
+      <div class="card"><h4>卷纲 / 近纲</h4><p>${esc(b.outline)}</p></div>
+      <div style="margin-top:16px;"><h4 style="margin-bottom:10px;">章节</h4>
+        ${CHAPTERS.map(c=>`<div class="chap"><span class="n">第 ${c.n} 章</span><span class="st2 ${c.status==='已生成'?'ok':'wait'}">${c.status}</span>${c.words>0?`<span style="color:var(--dim);font-size:12px;">${c.words} 字</span>`:""}<span style="flex:1"></span><button class="btn sm ghost" ${c.status!=='已生成'?'disabled style="opacity:.4"':""} onclick="openChapter(${c.n})">查看正文</button></div>`).join("")}
+      </div>`;
+    case "theater": return `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="color:var(--muted);font-size:13px;">这本书的剧场演绎记录（${b.theater.length}）</span>
+        <button class="btn sm" onclick="toast('演示版只读：新开演绎在真实系统可用')">＋ 新开演绎</button>
+      </div>
+      ${b.theater.length===0?'<div class="empty">还没有演绎记录。</div>':
+        b.theater.map(t=>`<div class="card" style="display:flex;align-items:center;"><span style="font-size:15px;margin-right:10px;">🎭</span><div style="flex:1;"><b style="font-size:14px;">${t.t}</b><div style="color:var(--dim);font-size:12px;">${t.n} 条记录 · ${t.time}</div></div></div>`).join("")}`;
+    case "pipeline": return renderPipeline();
+    case "workflow": return `
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">这本书背后的写作工作流（笔枢同款 7 个 + 你可自建）。点开可查看/修改节点。</p>
+      <div class="wf-grid">${WORKFLOWS.map(w=>`<div class="wf-card"><h4>🔗 ${w.label}</h4><p>${w.desc}</p><div style="color:var(--dim);font-size:11px;margin-top:6px;">${w.id}</div><button class="btn sm ghost" style="margin-top:8px;" onclick="toast('工作流编辑在真实系统的「工作流」页可用')">查看 / 修改</button></div>`).join("")}</div>`;
+  }
+}
+
+/* ============ 流水线（模拟） ============ */
+let pipeBusy=false;
+function renderPipeline(){
+  const b=current;
+  const doneCount = b.stepsDone;
+  const pct = Math.round(doneCount/PIPELINE.length*100);
+  return `
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn indigo" id="runBtn" onclick="runPipeline()">▶ 一键连跑</button>
+      <button class="btn sm ghost" onclick="toast('演示版：完整文本在真实系统可用')">📄 完整文本</button>
+      <button class="btn sm ghost" onclick="toast('演示版：项目文件在真实系统可用')">📁 项目文件</button>
+    </div>
+    <div class="bar"><i id="pipeBar" style="width:${pct}%"></i></div>
+    <div style="color:var(--dim);font-size:12px;margin:8px 0 14px;">进度 ${pct}% · 完成 ${doneCount}/${PIPELINE.length} 步</div>
+    ${PIPELINE.map((s,i)=>{
+      const st = i<doneCount?"done":(pipeBusy&&i===doneCount?"run":"wait");
+      return `<div class="step"><span class="no">${i+1}</span><span class="st st-${st}">${st==='done'?'✓':st==='run'?'⟳':i+1}</span>
+        <div class="info"><div class="label">${s.label}</div><div class="wf">${s.wf}</div></div>
+        <span class="status st-${st}">${st==='done'?'完成':st==='run'?'运行中…':'等待'}</span></div>`;
+    }).join("")}
+    <div id="diag"></div>`;
+}
+function runPipeline(){
+  if(pipeBusy) return; pipeBusy=true;
+  const b=current; b.stepsDone=0; render();
+  const total=PIPELINE.length;
+  let i=0;
+  const tick=()=>{
+    i++;
+    if(i<total){ b.stepsDone=i; updatePipe(); setTimeout(tick, i===3?2200:700); }
+    else {
+      // 第 4 步（卷纲）失败 → 自动诊断演示
+      b.stepsDone=i; updatePipe();
+      document.getElementById("diag").innerHTML = `
+        <div class="action-card"><div class="t">🧠 自动诊断</div>
+        <div class="d">节点 script_sync_down 失败：缺少本地存档文件 meta/character_profiles.md（角色创建未完成导致）。建议：先补跑「角色创建」，并给 sync_down 节点提高超时。</div>
+        <div class="acts"><button class="btn sm" onclick="toast('演示版：真实系统里这里会调 Workflow Main 自动修复并重试')">确认修复并重试</button>
+        <button class="btn sm ghost" onclick="document.getElementById('diag').innerHTML=''">忽略</button></div></div>`;
+      pipeBusy=false;
+      toast("演示：流水线失败会自动诊断 + 给修复建议（真实系统由 Workflow Main 执行）");
+    }
+  };
+  setTimeout(tick, 800);
+}
+function updatePipe(){
+  const b=current;
+  const pct=Math.round(b.stepsDone/PIPELINE.length*100);
+  const bar=document.getElementById("pipeBar"); if(bar) bar.style.width=pct+"%";
+  document.querySelectorAll(".step").forEach((el,idx)=>{
+    const st = idx<b.stepsDone?"done":(pipeBusy&&idx===b.stepsDone?"run":"wait");
+    const s=el.querySelector(".st"), t=el.querySelector(".status");
+    s.className="st st-"+st; s.textContent = st==='done'?'✓':st==='run'?'⟳':idx+1;
+    t.className="status st-"+st; t.textContent = st==='done'?'完成':st==='run'?'运行中…':'等待';
+  });
+}
+
+/* ============ 助手（模拟总大脑） ============ */
+function renderAssistant(){
+  const b=current;
+  return `
+    <div class="chat">
+      <div class="chat-bar">
+        <span class="chip" style="background:rgba(52,211,153,.12);color:var(--green);">AI 已接入</span>
+        <span class="chip">模型：智谱 GLM-4.6</span>
+        <span class="chip" style="color:var(--dim);">写作风格：${b.id==='b1'?'古风文笔 · 章节留钩':'（未挂载）'}</span>
+        <button class="btn sm ghost" onclick="toast('演示版：Skills 挂载在真实系统可用')">✨ 管理风格</button>
+      </div>
+      <div class="chat-scroll" id="chatScroll"></div>
+      <div class="chat-input">
+        <input id="chatIn" placeholder="问书的状态，或让我「串起来跑」「写第1章」「改设定」…" onkeydown="if(event.key==='Enter')sendChat()" />
+        <button class="btn" onclick="sendChat()">发送</button>
+      </div>
+    </div>`;
+}
+function addMsg(html, cls){ const s=$("#chatScroll"); const d=document.createElement("div"); d.className="msg "+cls; d.innerHTML=html; s.appendChild(d); s.scrollTop=s.scrollHeight; return d; }
+function addAction(title, bodyHtml, onConfirm){
+  const s=$("#chatScroll"); const d=document.createElement("div"); d.className="action-card";
+  d.innerHTML = `<div class="t">🧠 助手提案：${title}</div><div class="d">${bodyHtml}</div>
+    <div class="acts"><button class="btn sm" id="cf">✓ 确认执行</button><button class="btn sm ghost" id="rj">✕ 拒绝</button></div>`;
+  s.appendChild(d); s.scrollTop=s.scrollHeight;
+  d.querySelector("#cf").onclick=()=>{ d.remove(); onConfirm(); };
+  d.querySelector("#rj").onclick=()=>{ d.remove(); addMsg("已拒绝该提案。","err"); };
+  return d;
+}
+function bootAssistant(){
+  if(assistant.length) return;
+  const b=current;
+  addMsg("我是这本书的总大脑。已读取全书上下文：世界观 6 维 ✅、角色 ${b.characters.length} 名、卷纲近纲、章节状态、演绎记录、写作风格。", "ai");
+  addMsg("你可以：\n• 说「串起来跑」→ 我先给出执行计划再连跑\n• 说「写第1章」→ 我生成正文，确认后写入并留版本\n• 说「改设定」→ 我帮你填创意/类型/章节/模型\n• 问书的状态/角色/大纲", "ai");
+}
+function sendChat(){
+  const inp=$("#chatIn"); const text=inp.value.trim(); if(!text||chatBusy) return;
+  inp.value=""; addMsg(esc(text),"user");
+  chatBusy=true; const think=addMsg("总大脑思考中…","ai typing");
+  setTimeout(()=>{
+    think.remove(); respond(text);
+    chatBusy=false;
+  }, 700);
+}
+function respond(text){
+  if(/串起来|连跑|流水线跑|生成全部/.test(text)){
+    addMsg("我已读取本书管线的工作流，按以下顺序执行：\n1. 世界观构建 ⏳\n2. 角色创建 ⏳\n3. 故事宏观规划 ⏳\n4. 卷纲近纲规划 ⏳\n5. 第1章：生产 → 后验 → 润色 ⏳\n前置检查：缺 世界观——会先跑对应步骤补齐。\n\n确认后我会按以上顺序从头连跑；某一步失败我会自动诊断并尝试修复。","ai");
+    addAction("连跑整条流水线", "将按上面计划依次运行 7 个工作流，失败自动诊断+修复建议。", ()=>{ toast("已开始连跑（见「流水线」页的模拟进度）"); runPipeline(); });
+    return;
+  }
+  if(/写第1章|写第 1 章|写一章|生成章节/.test(text)){
+    addMsg("已按「古风文笔 · 章节留钩」写好第 1 章，请确认后写入（写入前会保留历史版本）。","ai");
+    addAction("写入章节正文 · 第1章", "目标：第 1 章　原因：用户要求写第1章<br>新正文预览（3264 字）：<pre>"+esc(CHAPTER_TEXT.slice(0,420))+"…</pre>", ()=>{ toast("已写入 story/0001/chapter.md，历史版本已留档"); addMsg("✅ 第1章正文已写入（3264字），可在「大纲章节」页查看。","ai"); });
+    return;
+  }
+  if(/改设定|创意改|类型改|章节改|模型换|存档目录/.test(text)){
+    addMsg("准备更新本书设定，请确认。","ai");
+    addAction("更新书设定", "fields：<pre>premise: "+esc(current.premise.slice(0,30))+"…\ngenre: "+current.genre+"\nassistant_model: zhipu:glm-4.6</pre>", ()=>{ toast("设定已更新（真实系统经 Workflow Main 确认写入）"); addMsg("✅ 书设定已更新，管线步骤将按新设定重建。","ai"); });
+    return;
+  }
+  if(/为什么失败|怎么回事|诊断/.test(text)){
+    addMsg("最近错误：角色创建 失败——节点 script_sync_down：缺少本地存档文件 meta/world_foundation.md（因为世界观构建未完成）。\n\n修复建议：① 补跑「世界观构建」；② 给 script_sync_down 提高超时/重试。要我现在执行吗？","ai");
+    addAction("运行修复", "步骤：run_step → build（世界观构建）<br>随后：workflow_update_node 提高 script_sync_down 超时", ()=>{ toast("修复已执行（演示）；真实系统由 Workflow Main 接管执行"); addMsg("✅ 已补跑世界观构建，sync_down 超时已提高，角色创建可继续。","ai"); });
+    return;
+  }
+  if(/你好|在吗|你是谁/.test(text)){ addMsg("我是《"+current.name+"》的总大脑——能读全书、写章节、改工作流、跑流水线。你说了算，我动手前都会先给你确认。","ai"); return; }
+  addMsg("我理解你的意思了。关于《"+current.name+"》：目前世界观已生成 6 维、角色 "+current.characters.length+" 名、第 1 章 3264 字。你可以让我「串起来跑」整条流水线，或「写第1章」「改设定」，也可以直接问我书里任何内容。","ai");
+}
+
+/* ============ 启动 ============ */
+render();
+</script>
+</body>
+</html>
