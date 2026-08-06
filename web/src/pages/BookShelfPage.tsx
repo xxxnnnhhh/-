@@ -43,6 +43,7 @@ interface NovelProject {
   character_ids: string[];
   theater_session_ids: string[];
   skill_ids: string[];
+  extra_workflow_ids: string[];
   assistant_enabled: boolean;
   assistant_model: string;
   created_at: string;
@@ -178,6 +179,8 @@ export default function BookShelfPage() {
   const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string; tags: string[] }[]>([]);
   const [skillDraft, setSkillDraft] = useState<string[]>([]);
   const [models, setModels] = useState<{ value: string; label: string }[]>([]);
+  const [wfPickerOpen, setWfPickerOpen] = useState(false);
+  const [allWorkflows, setAllWorkflows] = useState<{ workflow_id: string; name: string; node_count: number }[]>([]);
   const lastDiagRef = useRef("");
   const lastStatusRef = useRef("");
 
@@ -649,6 +652,47 @@ export default function BookShelfPage() {
       await fetchContent(selected.project_id);
     } catch (e) {
       showMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const openWfPicker = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch("/api/workflows");
+      const data = await res.json();
+      setAllWorkflows(data || []);
+      setWfPickerOpen(true);
+    } catch {
+      showMsg("读取工作流列表失败");
+    }
+  };
+
+  const addWorkflow = async (wfid: string) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/workflows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflow_id: wfid }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "加入失败");
+      await fetchContent(selected.project_id);
+      setWfPickerOpen(false);
+      showMsg("已加入本书管线（插在卷纲之后、章节之前）");
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "加入失败");
+    }
+  };
+
+  const removeWorkflow = async (wfid: string) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/workflows/${wfid}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("移除失败");
+      await fetchContent(selected.project_id);
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "移除失败");
     }
   };
 
@@ -1233,9 +1277,18 @@ export default function BookShelfPage() {
 
   const renderWorkflow = () => (
     <div className="space-y-3">
-      <p className="text-sm text-slate-400">
-        这本书背后的 7 个写作工作流（笔枢同款管线）。点开可查看/修改节点，改完再跑即生效。
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-400">
+          这本书背后的写作工作流（笔枢同款 7 个 + 你可自建）。点开可查看/修改节点，改完再跑即生效。
+        </p>
+        <button
+          type="button"
+          onClick={openWfPicker}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white transition-colors"
+        >
+          <Plus size={15} aria-hidden="true" /> 加入我的工作流
+        </button>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {WORKFLOW_LINKS.map((w) => (
           <button
@@ -1253,6 +1306,36 @@ export default function BookShelfPage() {
           </button>
         ))}
       </div>
+      {content?.project.extra_workflow_ids && content.project.extra_workflow_ids.length > 0 && (
+        <div className="mt-2">
+          <div className="mb-2 text-sm font-medium text-slate-300">自定义工作流（本书管线内）</div>
+          <div className="space-y-2">
+            {content.project.extra_workflow_ids.map((wfid) => (
+              <div key={wfid} className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                <WorkflowIcon size={16} className="shrink-0 text-amber-400" aria-hidden="true" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-slate-200">{wfid}</div>
+                  <div className="text-xs text-slate-500">已加入管线 · 在卷纲后、章节前执行</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeWorkflow(wfid)}
+                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  移出
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openWorkflow(wfid)}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <ExternalLink size={12} aria-hidden="true" /> 打开
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1621,6 +1704,48 @@ export default function BookShelfPage() {
               >
                 保存挂载
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 自定义工作流选择弹窗 */}
+      {wfPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
+          <div className="flex h-[70vh] w-full max-w-2xl flex-col rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-slate-100">加入自定义工作流</h3>
+                <p className="mt-0.5 text-xs text-slate-500">选一个你建的工作流，插到本书管线（卷纲后、章节前）</p>
+              </div>
+              <button type="button" onClick={() => setWfPickerOpen(false)} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">
+                关闭
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {allWorkflows.length === 0 ? (
+                <p className="text-sm text-slate-500">还没有可加入的工作流。去「工作流」页新建一个。</p>
+              ) : (
+                allWorkflows.map((w) => {
+                  const added = content?.project.extra_workflow_ids.includes(w.workflow_id);
+                  return (
+                    <div key={w.workflow_id} className="flex items-center gap-3 rounded-lg border border-white/5 bg-slate-950/60 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-slate-200">{w.name}</div>
+                        <div className="text-xs text-slate-500">{w.workflow_id} · {w.node_count} 节点</div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={added}
+                        onClick={() => addWorkflow(w.workflow_id)}
+                        className="rounded-md border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+                      >
+                        {added ? "已在管线" : "加入管线"}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

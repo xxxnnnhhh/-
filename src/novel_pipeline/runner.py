@@ -249,7 +249,14 @@ class NovelPipelineRunner:
         while True:
             data = self._manager.get_task_with_definition(step.workflow_id, task_id)
             if data is None:
-                raise RuntimeError("任务状态文件丢失")
+                # 引擎原子写盘时偶发瞬时不可读，重试几次再判定丢失
+                for _ in range(5):
+                    await asyncio.sleep(3)
+                    data = self._manager.get_task_with_definition(step.workflow_id, task_id)
+                    if data is not None:
+                        break
+                if data is None:
+                    raise RuntimeError("任务状态文件丢失")
             task = data.get("task") or {}
             status = task.get("status", "")
             if status == "completed":

@@ -64,6 +64,10 @@ class CreateTheaterRequest(BaseModel):
     mode: str = Field(default="perform", description="perform 演绎 | discuss 讨论")
 
 
+class AddWorkflowRequest(BaseModel):
+    workflow_id: str = Field(description="要加入本书管线的自定义工作流 ID")
+
+
 def _scan_chapters(project: NovelProject) -> list[dict]:
     """扫描工作区 story/ 目录，生成章节状态列表。"""
     ws = Path(project.workspace)
@@ -248,6 +252,38 @@ async def create_theater_session(project_id: str, body: CreateTheaterRequest):
         project.theater_session_ids.append(session.session_id)
         save_project(project)
     return {"success": True, "session": session.to_dict()}
+
+
+@router.post("/{project_id}/workflows")
+async def add_extra_workflow(project_id: str, body: AddWorkflowRequest, request: Request):
+    """把用户自定义工作流加入本书管线（插在准备阶段后、章节循环前）。"""
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    wf_id = body.workflow_id.strip()
+    if not wf_id:
+        raise HTTPException(status_code=400, detail="workflow_id 不能为空")
+    mgr = request.app.state.workflow_manager
+    if mgr.get_workflow(wf_id) is None:
+        raise HTTPException(status_code=404, detail=f"工作流不存在: {wf_id}")
+    if wf_id in project.extra_workflow_ids:
+        return {"success": True, "message": "已在管线中", "extra_workflow_ids": project.extra_workflow_ids}
+    project.extra_workflow_ids.append(wf_id)
+    project.steps = project.build_steps()
+    save_project(project)
+    return {"success": True, "extra_workflow_ids": project.extra_workflow_ids}
+
+
+@router.delete("/{project_id}/workflows/{workflow_id}")
+async def remove_extra_workflow(project_id: str, workflow_id: str):
+    """把自定义工作流移出本书管线。"""
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    project.extra_workflow_ids = [w for w in project.extra_workflow_ids if w != workflow_id]
+    project.steps = project.build_steps()
+    save_project(project)
+    return {"success": True, "extra_workflow_ids": project.extra_workflow_ids}
 
 
 @router.get("/{project_id}/chapters/{chapter}/text")

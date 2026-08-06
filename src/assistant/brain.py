@@ -54,6 +54,58 @@ def _workflow_structure_summary() -> str:
     return "\n".join(lines)
 
 
+def plan_pipeline(project) -> str:
+    """生成执行计划：读取工作流顺序 + 前置文件检查（先读再跑）。"""
+    from src.config import WORKFLOWS_DIR
+    from ..novel_pipeline.models import zero_pad_chapter
+    import json as _json
+
+    ws = Path(project.workspace)
+    lines = []
+    # 准备阶段
+    prep = [
+        ("build", "世界观构建", "bishu-novel-build", "meta/world_foundation.md"),
+        ("character", "角色创建", "bishu-novel-character", "meta/character_profiles.md,meta/character_voice.md"),
+        ("story-plan", "故事宏观规划", "bishu-novel-story-plan", "meta/story_plan.md,meta/style_profile.md"),
+        ("outline", "卷纲近纲规划", "bishu-novel-outline", "outline/volume_outline.md,outline/near_term_outline.md"),
+    ]
+    lines.append("我已读取本书管线的工作流，按以下顺序执行：")
+    idx = 1
+    for key, label, wf_id, outputs in prep:
+        status = "✅" if all((ws / p).is_file() for p in outputs.split(",") if p) else "⏳"
+        lines.append(f"{idx}. {label}（{wf_id}）{status}")
+        idx += 1
+    # 自定义工作流
+    for wf_id in project.extra_workflow_ids:
+        def_file = WORKFLOWS_DIR / wf_id / "definition.json"
+        name = wf_id
+        if def_file.exists():
+            try:
+                name = _json.loads(def_file.read_text(encoding="utf-8")).get("name") or wf_id
+            except Exception:
+                pass
+        lines.append(f"{idx}. 自定义 · {name}（{wf_id}）⏳")
+        idx += 1
+    # 章节循环
+    for ch in project.chapters:
+        ch_num = zero_pad_chapter(ch)
+        md = ws / "story" / ch_num / "chapter.md"
+        status = "✅" if md.is_file() else "⏳"
+        lines.append(f"{idx}. 第{int(ch)}章：生产 → 后验 → 润色 {status}")
+        idx += 1
+    # 前置检查
+    missing = []
+    if not (ws / "meta" / "world_foundation.md").is_file():
+        missing.append("世界观（meta/world_foundation.md）")
+    if project.character_ids and not (ws / "meta" / "character_profiles.md").is_file():
+        missing.append("角色档案（meta/character_profiles.md）")
+    if missing:
+        lines.append("前置检查：缺 " + "、".join(missing) + " —— 会先跑对应步骤补齐。")
+    else:
+        lines.append("前置检查：通过，所需基础文件齐备。")
+    return "\n".join(lines)
+
+
 def describe_workflows() -> str:
     """返回 7 个工作流的详细结构（节点/类型/关键任务）。"""
     from src.config import WORKFLOWS_DIR
@@ -171,6 +223,20 @@ def build_context(project) -> str:
 
     # 工作流结构（可调配清单）
     workflow_summary = _workflow_structure_summary()
+    if project.extra_workflow_ids:
+        import json as _json
+        from src.config import WORKFLOWS_DIR
+        extra_lines = []
+        for wf_id in project.extra_workflow_ids:
+            def_file = WORKFLOWS_DIR / wf_id / "definition.json"
+            name = wf_id
+            if def_file.exists():
+                try:
+                    name = _json.loads(def_file.read_text(encoding="utf-8")).get("name") or wf_id
+                except Exception:
+                    pass
+            extra_lines.append(f"- 自定义·{name}（{wf_id}）")
+        workflow_summary += "\n" + "\n".join(extra_lines)
 
     # 挂载的 Skills
     skills_section = ""
@@ -405,6 +471,9 @@ async def chat(project, messages: list[dict], model_override: str | None = None)
         logger.exception("总大脑对话失败")
         return {"reply": f"（调用模型失败：{exc}）", "action": None}
     parsed = _parse_assistant_output(text)
+    if parsed.get("action") and parsed["action"].get("operation") == "run_pipeline":
+        plan = plan_pipeline(project)
+        parsed["reply"] = plan + "\n\n确认后我会按以上顺序从头连跑；某一步失败我会自动诊断并尝试修复。"
     if parsed.get("action") is None:
         fallback = _maybe_wrap_write_intent(parsed.get("reply", ""), messages)
         if fallback is not None:

@@ -103,6 +103,7 @@ class NovelProject:
     character_ids: list[str] = field(default_factory=list)   # 关联人物库角色
     theater_session_ids: list[str] = field(default_factory=list)  # 关联剧场会话
     skill_ids: list[str] = field(default_factory=list)        # 挂载的写作风格 Skills
+    extra_workflow_ids: list[str] = field(default_factory=list)  # 用户自定义加入的工作流
     assistant_enabled: bool = True                             # 总大脑 AI 开关
     assistant_model: str = ""                                  # 总大脑模型（空=默认 glm-4.6）
     created_at: str = field(default_factory=_now_iso)
@@ -133,6 +134,7 @@ class NovelProject:
             "character_ids": list(self.character_ids),
             "theater_session_ids": list(self.theater_session_ids),
             "skill_ids": list(self.skill_ids),
+            "extra_workflow_ids": list(self.extra_workflow_ids),
             "assistant_enabled": self.assistant_enabled,
             "assistant_model": self.assistant_model,
             "created_at": self.created_at,
@@ -181,6 +183,9 @@ class NovelProject:
             skill_ids=[
                 str(s) for s in (data.get("skill_ids") or []) if str(s).strip()
             ],
+            extra_workflow_ids=[
+                str(w) for w in (data.get("extra_workflow_ids") or []) if str(w).strip()
+            ],
             assistant_enabled=bool(data.get("assistant_enabled", True)),
             assistant_model=data.get("assistant_model", "") or "",
             created_at=data.get("created_at", _now_iso()),
@@ -201,6 +206,23 @@ class NovelProject:
             steps.append(PipelineStep(
                 key=key, label=label, workflow_id=wf_id,
                 workflow_name=wf_id,
+            ))
+        # 用户自定义工作流（加在准备阶段之后、章节循环之前）
+        from src.config import WORKFLOWS_DIR
+        import json as _json
+        for wf_id in self.extra_workflow_ids:
+            label = wf_id
+            def_file = WORKFLOWS_DIR / wf_id / "definition.json"
+            if def_file.exists():
+                try:
+                    label = _json.loads(def_file.read_text(encoding="utf-8")).get("name") or wf_id
+                except Exception:
+                    pass
+            steps.append(PipelineStep(
+                key=f"extra-{wf_id}",
+                label=f"自定义 · {label}",
+                workflow_id=wf_id,
+                workflow_name=label,
             ))
         for ch in self.chapters:
             ch_num = zero_pad_chapter(ch)
@@ -247,6 +269,8 @@ class NovelProject:
                 **common,
                 "chapter_number": zero_pad_chapter(step.chapter_number or 1),
             }
+        if step.key.startswith("extra-"):
+            return common
         return common
 
 
