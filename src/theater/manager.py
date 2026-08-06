@@ -14,6 +14,36 @@ from src.config import DATA_DIR
 from src.theater.battle import resolve
 from src.theater.models import TheaterSession, World
 
+
+EMOTION_CN = {
+    "anger": "愤怒", "fear": "恐惧", "sadness": "悲伤", "joy": "喜悦",
+    "calm": "冷静", "determination": "坚定", "disgust": "厌恶", "surprise": "惊讶",
+    "trust": "信任", "anticipation": "期待",
+}
+
+
+def emotion_summary(emotion_state: dict) -> dict:
+    """取强度最高的情绪，返回中文综合情绪名与强度。
+
+    情绪不是"一段一段"的，而是综合成当前主导情绪（如"愤怒"），供小说输出使用。
+    """
+    if not emotion_state:
+        return {"name": "平静", "value": 0.0}
+    best_key = ""
+    best_val = 0.0
+    for k, v in emotion_state.items():
+        try:
+            val = float(v)
+        except (TypeError, ValueError):
+            continue
+        if val > best_val:
+            best_val = val
+            best_key = str(k).lower()
+    return {
+        "name": EMOTION_CN.get(best_key, best_key),
+        "value": round(best_val, 2),
+    }
+
 logger = logging.getLogger("theater")
 
 WORLDS_DIR = Path(DATA_DIR) / "worlds"
@@ -354,7 +384,8 @@ class TheaterManager:
         from src.core.llm_client import create_llm
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        emotion_note = f"当前情绪：{c.emotion_state or '平静'}，压力 {c.pressure}"
+        emo = emotion_summary(c.emotion_state or {})
+        emotion_note = f"当前情绪：{emo['name']}（强度 {emo['value']}），压力 {c.pressure}"
         stats_note = "；".join(f"{k}{v}" for k, v in c.stats.items())
         eq_note = "、".join(
             f"{e.get('name','')}({e.get('effect','')})" for e in c.equipment
@@ -384,7 +415,7 @@ class TheaterManager:
         turn = self._parse_turn(str(resp.content))
         turn["character_id"] = c.character_id
         turn["name"] = c.name
-        turn["emotion"] = dict(c.emotion_state or {})
+        turn["emotion"] = emo  # 综合情绪（中文名 + 强度）
         return turn
 
 

@@ -37,7 +37,7 @@ interface PerformMsg {
     expression: string;
     action: string;
     speech: string;
-    emotion: Record<string, number>;
+    emotion: { name: string; value: number } | Record<string, number>;
   };
   battleText?: string;
   meta?: string[];
@@ -526,8 +526,8 @@ export default function TheaterPage() {
                         {t.thinking && <span>（思考：{t.thinking}）</span>}
                         {t.expression && <span>（表情：{t.expression}）</span>}
                         {t.action && <span>（动作：{t.action}）</span>}
-                        {Object.keys(t.emotion || {}).length > 0 && (
-                          <span>（情绪：{Object.entries(t.emotion).map(([k]) => k).join("、")}）</span>
+                        {t.emotion && typeof t.emotion === "object" && Object.keys(t.emotion).length > 0 && (
+                          <span>（情绪：{("name" in t.emotion) ? String((t.emotion as { name: string }).name) : Object.keys(t.emotion).join("、")}）</span>
                         )}
                       </div>
                     </div>

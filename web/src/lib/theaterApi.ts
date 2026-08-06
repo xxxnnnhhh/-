@@ -107,7 +107,7 @@ export const performRound = (sessionId: string, director = "") =>
       expression: string;
       action: string;
       speech: string;
-      emotion: Record<string, number>;
+      emotion: { name: string; value: number } | Record<string, number>;
     }>;
     is_battle: boolean;
     battle_ratio: number;
