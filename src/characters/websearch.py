@@ -11,12 +11,12 @@ import html as html_mod
 import json
 import logging
 import re
+import urllib.parse
 
 import httpx
 
 logger = logging.getLogger("characters.websearch")
 
-PROXY = "http://127.0.0.1:7897"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -31,7 +31,7 @@ def _clean(text: str) -> str:
     return html_mod.unescape(text).strip()
 
 
-async def _client(proxy: str | None) -> httpx.AsyncClient:
+async def _client(proxy: str | None = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=12,
         follow_redirects=True,
@@ -40,50 +40,138 @@ async def _client(proxy: str | None) -> httpx.AsyncClient:
     )
 
 
-async def _bing_search(query: str, max_results: int) -> list[dict]:
-    """必应搜索：带 Cookie 流程，直连/代理各重试多次（验证码偶发）。"""
-    params = {"q": query, "setlang": "zh-hans"}
-    attempts = [(None, 3), (PROXY, 2)]  # (proxy, tries)
-    for proxy, tries in attempts:
-        for attempt in range(tries):
-            try:
-                async with await _client(proxy) as cli:
-                    try:
-                        await cli.get("https://www.bing.com/", timeout=8)
-                    except Exception:
-                        pass
-                    resp = await cli.get(
-                        "https://www.bing.com/search", params=params
-                    )
-                    resp.raise_for_status()
-                    text = resp.text
-            except Exception as e:
-                logger.debug(f"必应尝试失败（proxy={bool(proxy)}, {attempt}）: {e}")
+def _baidu_decode(url: str) -> str:
+    """百度结果链接是 /link?url=... 跳转，直接还原成可点击的原始地址。"""
+    m = re.search(r"[?&]url=([^&]+)", url)
+    if m:
+        decoded = urllib.parse.unquote(m.group(1))
+        if decoded.startswith("http://") or decoded.startswith("https://"):
+            return decoded
+    # 搜狗等站点返回 /link?url=... 这种相对链接，拼接完整地址
+    if url.startswith("/link?"):
+        return "https://www.sogou.com" + url
+    if url.startswith("//"):
+        return "https:" + url
+    return url
+
+
+async def _baidu_search(query: str, max_results: int) -> list[dict]:
+    """百度搜索：国内直连，无需代理。"""
+    params = {"wd": query, "ie": "utf-8"}
+    try:
+        async with await _client() as cli:
+            resp = await cli.get("https://www.baidu.com/s", params=params)
+            resp.raise_for_status()
+            text = resp.text
+    except Exception as e:
+        logger.debug(f"百度搜索失败: {e}")
+        return []
+
+    results: list[dict] = []
+    seen: set[str] = set()
+    for item in re.findall(r'<div[^>]*class="[^"]*result[^"]*"[^>]*>.*?</div>', text, re.S)[: max_results * 2]:
+        m_title = re.search(r'<h3[^>]*>.*?<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', item, re.S)
+        if not m_title:
+            continue
+        raw_url = html_mod.unescape(m_title.group(1))
+        title = _clean(m_title.group(2))
+        if not title:
+            continue
+        url = _baidu_decode(raw_url)
+        if url in seen:
+            continue
+        seen.add(url)
+        m_snip = re.search(r'<span class="content-right_8Zs40">(.*?)</span>', item, re.S) or \
+            re.search(r'<div class="c-abstract[^"]*"[^>]*>(.*?)</div>', item, re.S)
+        snippet = _clean(m_snip.group(1)) if m_snip else ""
+        if not snippet:
+            m_snip2 = re.search(r'<span[^>]*class="[^"]*"[^>]*>(.*?)</span>', item, re.S)
+            snippet = _clean(m_snip2.group(1)) if m_snip2 else ""
+        results.append({"title": title, "url": url, "snippet": snippet[:200]})
+        if len(results) >= max_results:
+            break
+    if results:
+        logger.info(f"百度搜索「{query[:30]}」命中 {len(results)} 条")
+    return results
+
+
+async def _sogou_search(query: str, max_results: int) -> list[dict]:
+    """搜狗搜索：国内直连，无需代理；偶发反爬页时重试。"""
+    params = {"query": query}
+    for attempt in range(3):
+        try:
+            async with await _client() as cli:
+                resp = await cli.get("https://www.sogou.com/web", params=params)
+                resp.raise_for_status()
+                text = resp.text
+        except Exception as e:
+            logger.debug(f"搜狗搜索失败（{attempt}）: {e}")
+            await asyncio.sleep(1.0)
+            continue
+        if "antispider" in text or "seccode" in text:
+            logger.debug(f"搜狗反爬页（{attempt}），稍后重试")
+            await asyncio.sleep(1.5)
+            continue
+        results: list[dict] = []
+        for item in re.findall(r'<div[^>]*class="[^"]*vrwrap[^"]*"[^>]*>.*?</div>', text, re.S)[: max_results * 2]:
+            m_title = re.search(r'<h3[^>]*>.*?<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', item, re.S)
+            if not m_title:
                 continue
-            results = []
-            for item in re.findall(r'<li class="b_algo".*?</li>', text, re.S)[:max_results]:
-                m = re.search(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', item, re.S)
-                if not m:
-                    continue
-                url = html_mod.unescape(m.group(1))
-                title = _clean(m.group(2))
-                if not title or url.startswith("javascript:"):
-                    continue
-                sm = re.search(r"<p[^>]*>(.*?)</p>", item, re.S)
-                snippet = _clean(sm.group(1)) if sm else ""
-                results.append({"title": title, "url": url, "snippet": snippet})
-            if results:
-                logger.info(
-                    f"必应搜索「{query[:30]}」命中 {len(results)} 条"
-                    f"（proxy={bool(proxy)}, try={attempt + 1}）"
-                )
-                return results
+            raw_url = html_mod.unescape(m_title.group(1))
+            title = _clean(m_title.group(2))
+            if not title:
+                continue
+            # 搜狗结果链接是 /link?url=...，还原成可点击地址
+            url = _baidu_decode(raw_url)
+            m_snip = re.search(r'<div class="text-layout[^"]*"[^>]*>(.*?)</div>', item, re.S) or \
+                re.search(r'<p class="star-wiki"[^>]*>(.*?)</p>', item, re.S)
+            snippet = _clean(m_snip.group(1)) if m_snip else ""
+            results.append({"title": title, "url": url, "snippet": snippet[:200]})
+            if len(results) >= max_results:
+                break
+        if results:
+            logger.info(f"搜狗搜索「{query[:30]}」命中 {len(results)} 条")
+            return results
+    return []
+
+
+async def _bing_search(query: str, max_results: int) -> list[dict]:
+    """必应搜索：直连重试（国内部分地区可直连）。"""
+    params = {"q": query, "setlang": "zh-hans"}
+    for attempt in range(2):
+        try:
+            async with await _client() as cli:
+                try:
+                    await cli.get("https://cn.bing.com/", timeout=8)
+                except Exception:
+                    pass
+                resp = await cli.get("https://cn.bing.com/search", params=params)
+                resp.raise_for_status()
+                text = resp.text
+        except Exception as e:
+            logger.debug(f"必应尝试失败（{attempt}）: {e}")
             await asyncio.sleep(0.5)
+            continue
+        results = []
+        for item in re.findall(r'<li class="b_algo".*?</li>', text, re.S)[:max_results]:
+            m = re.search(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', item, re.S)
+            if not m:
+                continue
+            url = html_mod.unescape(m.group(1))
+            title = _clean(m.group(2))
+            if not title or url.startswith("javascript:"):
+                continue
+            sm = re.search(r"<p[^>]*>(.*?)</p>", item, re.S)
+            snippet = _clean(sm.group(1)) if sm else ""
+            results.append({"title": title, "url": url, "snippet": snippet})
+        if results:
+            logger.info(f"必应搜索「{query[:30]}」命中 {len(results)} 条")
+            return results
     return []
 
 
 async def _wiki_search(query: str, max_results: int) -> list[dict]:
-    """维基百科 API（走代理，稳定）：标题 + 引言摘要。"""
+    """维基百科 API（直连，国内不可用时自动跳过）：标题 + 引言摘要。"""
     api = "https://zh.wikipedia.org/w/api.php"
     params = {
         "action": "query",
@@ -93,7 +181,7 @@ async def _wiki_search(query: str, max_results: int) -> list[dict]:
         "srlimit": str(max_results),
     }
     try:
-        async with await _client(PROXY) as cli:
+        async with await _client() as cli:
             resp = await cli.get(api, params=params)
             resp.raise_for_status()
             data = resp.json()
@@ -114,7 +202,7 @@ async def _wiki_search(query: str, max_results: int) -> list[dict]:
     ]
     # 取前 2 条的正文引言
     try:
-        async with await _client(PROXY) as cli:
+        async with await _client() as cli:
             resp = await cli.get(
                 api,
                 params={
@@ -142,11 +230,20 @@ async def _wiki_search(query: str, max_results: int) -> list[dict]:
 
 
 async def web_search(query: str, max_results: int = 5) -> list[dict]:
-    """搜索并返回 [{title, url, snippet}]：必应优先，维基百科兜底。"""
+    """搜索并返回 [{title, url, snippet}]：国内直连优先（百度→必应→搜狗），维基百科兜底。"""
     if not query.strip():
         return []
-    results = await _bing_search(query, max_results)
-    source = "bing"
+    channels: list[tuple[str, str]] = [
+        ("sogou", await _sogou_search(query, max_results)),
+        ("baidu", await _baidu_search(query, max_results)),
+        ("bing", await _bing_search(query, max_results)),
+    ]
+    results: list[dict] = []
+    source = "baidu"
+    for name, r in channels:
+        if r:
+            results, source = r, name
+            break
     if not results:
         results = await _wiki_search(query, max_results)
         source = "wikipedia"
@@ -155,4 +252,3 @@ async def web_search(query: str, max_results: int = 5) -> list[dict]:
     for r in results:
         r["source"] = source
     return results
-

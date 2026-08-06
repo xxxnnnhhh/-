@@ -100,7 +100,13 @@ class AgentConfigManager:
         try:
             # 验证配置格式
             if "agents" not in config:
-                logger.error("配置文件缺少 'agents' 字段")
+                logger.error(
+                    "配置文件缺少 'agents' 字段; config_file=%s, config_store=%s, keys=%s, raw_head=%s",
+                    self.config_file,
+                    type(self._config_store).__name__ if self._config_store else None,
+                    list(config.keys())[:10] if isinstance(config, dict) else type(config).__name__,
+                    str(config)[:200],
+                )
                 raise ValueError("配置文件格式错误: 缺少 'agents' 字段")
 
             if not isinstance(config["agents"], dict):
