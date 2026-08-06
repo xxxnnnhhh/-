@@ -648,6 +648,7 @@ def register_all_tool_factories(registry: ToolRegistry, *,
         create_approve_node_tool,
         create_list_workflows_tool,
         create_get_workflow_tool,
+        create_update_workflow_node_tool,
         create_create_and_attach_task_tool,
         create_list_tasks_tool,
         create_get_task_status_tool,
@@ -697,6 +698,7 @@ def register_all_tool_factories(registry: ToolRegistry, *,
     query_tool_creators = [
         create_list_workflows_tool,
         create_get_workflow_tool,
+        create_update_workflow_node_tool,
     ]
     for creator in query_tool_creators:
         tool_instance = creator(wf_mgr)

@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -107,7 +107,21 @@ def _ensure_tool_execution_allowed(
     if error:
         return error
     if workflow is None:
-        return _fail(f"工作流 {workflow_id} 不存在")
+        # 引导纠正：给出真实可用 ID，并提示不要用 agent 类型名
+        try:
+            available = [
+                w.get("workflow_id")
+                for w in (workflow_manager.list_workflows() or [])
+                if w.get("workflow_id")
+            ]
+        except Exception:
+            available = []
+        hint = (
+            f"工作流 {workflow_id} 不存在。可用工作流 ID：{', '.join(available) or '（无）'}。"
+            "注意：工作流 ID 与 agent 类型名不同（如 bishu-novel-outline 是工作流，"
+            "bishu-novel-novel-outliner 是 agent 类型），请先调用 list_workflows 获取真实 ID。"
+        )
+        return _fail(hint)
     return None
 
 
@@ -766,6 +780,59 @@ def create_get_workflow_tool(
     )
 
 
+class UpdateWorkflowNodeArgs(BaseModel):
+    """update_workflow_node 参数。"""
+    workflow_id: str = Field(description="工作流 ID（必须来自 list_workflows 的真实 ID）")
+    node_id: str = Field(description="要修改的节点 ID（来自 get_workflow 的 nodes）")
+    field: str = Field(
+        description=(
+            "要修改的字段：first_message / system_prompt_template / label / model_override，"
+            "或 node_params.<键>（如 node_params.timeout 改超时、node_params.max_reject_count 改重试次数）"
+        )
+    )
+    new_value: Any = Field(description="新值（字符串/数字/布尔均可）")
+    reason: str = Field(default="", description="修改原因")
+
+
+def create_update_workflow_node_tool(
+    workflow_manager: "WorkflowManager",
+) -> StructuredTool:
+    """创建 update_workflow_node 工具 — 修改工作流某节点的提示词/参数/标签。"""
+
+    async def _update_workflow_node(
+        workflow_id: str,
+        node_id: str,
+        field: str,
+        new_value: Any,
+        reason: str = "",
+    ) -> str:
+        from src.assistant.brain import apply_workflow_node_update
+        result = apply_workflow_node_update(
+            workflow_manager,
+            {
+                "workflow_id": workflow_id,
+                "node_id": node_id,
+                "field": field,
+                "new_value": new_value,
+                "reason": reason,
+            },
+        )
+        return json.dumps(result, ensure_ascii=False)
+
+    return StructuredTool(
+        name="update_workflow_node",
+        description=(
+            "修改工作流中某个节点的提示词（first_message）、补充规则（system_prompt_template）、"
+            "名称（label）、模型覆盖（model_override）或节点参数（node_params.<键>，如 timeout、"
+            "max_reject_count）。修改会先校验再保存，版本自动 +1，下次执行生效。"
+            "修改前先用 get_workflow 查看节点真实 ID 和现有参数。"
+        ),
+        args_schema=UpdateWorkflowNodeArgs,
+        func=lambda **kw: None,
+        coroutine=_update_workflow_node,
+    )
+
+
 def create_create_and_attach_task_tool(
     workflow_manager: "WorkflowManager",
     session_manager: "SessionManager",
@@ -816,6 +883,8 @@ def create_create_and_attach_task_tool(
             "会话只把新任务记录为最近任务，不影响此前任务继续运行。"
             "默认 task_isolated 工作空间；需要跨任务共享时显式使用 named_shared。"
             "Main 默认只跟踪任务；仅在明确需要逐 Agent 节点审批时设置 main_takeover=true。"
+            "workflow_id 必须来自 list_workflows 返回的真实工作流 ID（如 bishu-novel-build、"
+            "bishu-novel-outline），绝不能使用 agent 类型名（如 bishu-novel-novel-writer）。"
         ),
         args_schema=CreateAndAttachTaskArgs,
         func=lambda **kw: None,
