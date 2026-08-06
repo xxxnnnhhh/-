@@ -44,6 +44,11 @@ class CharacterIn(BaseModel):
     soft_rules: list[str] = Field(default_factory=list)
     temperature: float = 0.9
     model_name: str | None = None
+    types: list[str] = Field(default_factory=list)
+    stats: dict = Field(default_factory=dict)
+    abilities: list[dict] = Field(default_factory=list)
+    equipment: list[dict] = Field(default_factory=list)
+    skill_ids: list[str] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):

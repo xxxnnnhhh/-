@@ -91,6 +91,14 @@ class Character:
     soft_rules: list[str] = field(default_factory=list)
     temperature: float = 0.9
     model_name: str | None = None
+    # ==== 剧场增强字段 ====
+    types: list[str] = field(default_factory=list)  # ["fight","plot","talk"] 战斗/剧情/对话
+    stats: dict = field(default_factory=lambda: {
+        "力量": 50, "敏捷": 50, "体质": 50, "智力": 50, "精神": 50,
+    })  # 身体素质五维
+    abilities: list[dict] = field(default_factory=list)  # [{"name":"伞刃精通","level":3}]
+    equipment: list[dict] = field(default_factory=list)  # [{"name":"青骨伞","effect":"力量+5","slot":"武器"}]
+    skill_ids: list[str] = field(default_factory=list)  # 挂载的写作风格 Skills
     emotion_state: dict = field(default_factory=dict)
     pinned_emotion: dict | None = None
     pinned_ratios: dict | None = None
@@ -122,6 +130,11 @@ class Character:
             "soft_rules": list(self.soft_rules),
             "temperature": self.temperature,
             "model_name": self.model_name,
+            "types": list(self.types),
+            "stats": dict(self.stats),
+            "abilities": [dict(a) for a in self.abilities],
+            "equipment": [dict(e) for e in self.equipment],
+            "skill_ids": list(self.skill_ids),
             "emotion_state": dict(self.emotion_state),
             "pinned_emotion": dict(self.pinned_emotion) if self.pinned_emotion else None,
             "pinned_ratios": dict(self.pinned_ratios) if self.pinned_ratios else None,
@@ -147,6 +160,11 @@ class Character:
             soft_rules=list(data.get("soft_rules", []) or []),
             temperature=float(data.get("temperature", 0.9)),
             model_name=data.get("model_name"),
+            types=list(data.get("types", []) or []),
+            stats=dict(data.get("stats", {"力量": 50, "敏捷": 50, "体质": 50, "智力": 50, "精神": 50})),
+            abilities=[dict(a) for a in (data.get("abilities", []) or [])],
+            equipment=[dict(e) for e in (data.get("equipment", []) or [])],
+            skill_ids=list(data.get("skill_ids", []) or []),
             emotion_state=dict(data.get("emotion_state", {}) or {}),
             pinned_emotion=dict(data["pinned_emotion"]) if data.get("pinned_emotion") else None,
             pinned_ratios=dict(data["pinned_ratios"]) if data.get("pinned_ratios") else None,

@@ -29,9 +29,14 @@ export interface Character {
   events: StoryEvent[];
   hard_rules: string[];
   soft_rules: string[];
-  temperature: number;
-  model_name: string | null;
-  emotion_state: Record<string, number>;
+    temperature: number;
+    model_name: string | null;
+    types: string[];
+    stats: Record<string, number>;
+    abilities: Array<{ name: string; level?: number }>;
+    equipment: Array<{ name: string; effect?: string; slot?: string }>;
+    skill_ids: string[];
+    emotion_state: Record<string, number>;
   pinned_emotion: Record<string, number> | null;
   pinned_ratios: { id: number; ego: number; superego: number } | null;
   current_ratio: { id: number; ego: number; superego: number };
