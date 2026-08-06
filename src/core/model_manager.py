@@ -64,6 +64,11 @@ def _build_gpt_extra_body(params: dict) -> dict:
     return extra
 
 
+def _build_glm_extra_body(params: dict) -> dict:
+    """GLM 系列：标准 OpenAI 兼容接口，无需 thinking 参数。"""
+    return {}
+
+
 PROVIDER_CATEGORIES: dict[str, dict] = {
     "ds": {
         "display_name": "DeepSeek",
@@ -83,6 +88,11 @@ PROVIDER_CATEGORIES: dict[str, dict] = {
     "gpt": {
         "display_name": "GPT",
         "build_extra_body": _build_gpt_extra_body,
+        "chat_openai_params": ["temperature", "top_p", "presence_penalty"],
+    },
+    "glm": {
+        "display_name": "智谱 GLM",
+        "build_extra_body": _build_glm_extra_body,
         "chat_openai_params": ["temperature", "top_p", "presence_penalty"],
     },
 }
@@ -165,7 +175,22 @@ PROVIDER_SCHEMAS = {
                 "label": "最大输出Token"
             }
         }
-    }
+    },
+    "zhipu": {
+        "display_name": "智谱 GLM",
+        "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "category": "glm",
+        "reasoning_efforts": [],
+        "hyperparams": {
+            "max_completion_tokens": {
+                "type": "number",
+                "min": 1,
+                "max": 131072,
+                "default": 8192,
+                "label": "最大输出Token"
+            }
+        }
+    },
 }
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
