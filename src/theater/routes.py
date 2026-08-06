@@ -86,6 +86,10 @@ class BackstageChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class PerformRequest(BaseModel):
+    director: str = Field(default="", max_length=2000)
+
+
 @router.get("/sessions")
 async def list_sessions(request: Request):
     return {"sessions": _mgr(request).list_sessions()}
@@ -141,6 +145,16 @@ async def battle_action(session_id: str, body: BattleRequest, request: Request):
         attack_stat=body.attack_stat,
         defense_stat=body.defense_stat,
     )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/sessions/{session_id}/perform")
+async def perform_round(session_id: str, body: PerformRequest | None = None, request: Request = None):
+    """执行一轮演出（旁白 + 角色四通道，AI 生成；战斗场景为小说式打斗描写）。"""
+    director = body.director if body else ""
+    result = await _mgr(request).perform_round(session_id, director=director)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result

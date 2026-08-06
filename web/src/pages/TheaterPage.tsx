@@ -6,7 +6,7 @@ import {
 import { fetchCharacters, type Character } from "../lib/characterApi";
 import {
   fetchTheaterWorlds, createTheaterWorld, createTheaterSession, preReadTheater,
-  setTheaterBattleRatio, backstageChat, type World, type TheaterSession,
+  setTheaterBattleRatio, backstageChat, performRound, type World, type TheaterSession,
 } from "../lib/theaterApi";
 
 const STATS_DEFAULT = { 力量: 50, 敏捷: 50, 体质: 50, 智力: 50, 精神: 50 };
@@ -16,6 +16,33 @@ const TYPE_LABELS: Record<string, { label: string; cls: string }> = {
   plot: { label: "剧情型", cls: "bg-indigo-500/15 text-indigo-400" },
   talk: { label: "对话型", cls: "bg-emerald-500/15 text-emerald-400" },
 };
+
+// 角色颜色（按选角顺序分配，便于区分发言人）
+const ROLE_COLORS = [
+  { name: "#f87171", bg: "rgba(248,113,113,.12)", border: "rgba(248,113,113,.45)" },
+  { name: "#60a5fa", bg: "rgba(96,165,250,.12)", border: "rgba(96,165,250,.45)" },
+  { name: "#34d399", bg: "rgba(52,211,153,.12)", border: "rgba(52,211,153,.45)" },
+  { name: "#fbbf24", bg: "rgba(251,191,36,.12)", border: "rgba(251,191,36,.45)" },
+  { name: "#c084fc", bg: "rgba(192,132,252,.12)", border: "rgba(192,132,252,.45)" },
+  { name: "#f472b6", bg: "rgba(244,114,182,.12)", border: "rgba(244,114,182,.45)" },
+];
+
+interface PerformMsg {
+  kind: "narrator" | "turn" | "battle";
+  narrator?: string;
+  turn?: {
+    character_id: string;
+    name: string;
+    thinking: string;
+    expression: string;
+    action: string;
+    speech: string;
+    emotion: Record<string, number>;
+  };
+  battleText?: string;
+  meta?: string[];
+  round: number;
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -43,6 +70,10 @@ export default function TheaterPage() {
   const [reading, setReading] = useState(false);
   const [readSteps, setReadSteps] = useState<TheaterSession["pre_read_steps"]>([]);
   const [consensus, setConsensus] = useState("");
+  const [performMsgs, setPerformMsgs] = useState<PerformMsg[]>([]);
+  const [performing, setPerforming] = useState(false);
+  const [performRoundNum, setPerformRoundNum] = useState(0);
+  const [directorText, setDirectorText] = useState("");
   const [worldview, setWorldview] = useState("两界分层；权柄总量守恒；禁开天位权柄。");
   const [newWorldName, setNewWorldName] = useState("");
   const [showNewWorld, setShowNewWorld] = useState(false);
@@ -141,6 +172,56 @@ export default function TheaterPage() {
     } finally {
       setBsBusy(false);
     }
+  };
+
+  const colorOf = (charId: string) => {
+    const idx = pickedIds.indexOf(charId);
+    return ROLE_COLORS[idx >= 0 ? idx % ROLE_COLORS.length : 0];
+  };
+
+  const playRound = async (director = "") => {
+    if (!session || performing) return;
+    setPerforming(true);
+    try {
+      const res = await performRound(session.session_id, director);
+      setPerformRoundNum(res.round);
+      setPerformMsgs((prev) => [
+        ...prev,
+        { kind: "narrator", narrator: res.narrator, round: res.round },
+        ...res.turns.map((t) => ({ kind: "turn" as const, turn: t, round: res.round })),
+      ]);
+      // 战斗场景：追加打斗判定元数据（按比重）
+      if (res.is_battle) {
+        const first = res.turns[0];
+        if (first) {
+          const color = colorOf(first.character_id);
+          setPerformMsgs((prev) => [
+            ...prev,
+            {
+              kind: "battle",
+              battleText: "",
+              meta: [
+                `文字演绎 ${res.battle_ratio}% · 数值判定 ${100 - res.battle_ratio}%`,
+                `招式：${first.action || "蓄势"}（${first.name}）`,
+                `判定参考：${color.name} 方力量 ${100 - res.battle_ratio > 50 ? "侧重" : "参考"}`,
+              ],
+              round: res.round,
+            },
+          ]);
+        }
+      }
+    } catch {
+      setPerformMsgs((prev) => [...prev, { kind: "narrator", narrator: "（这一轮没有接住，稍后再试）", round: performRoundNum + 1 }]);
+    } finally {
+      setPerforming(false);
+    }
+  };
+
+  const handleDirector = async () => {
+    const text = directorText.trim();
+    if (!text || !session) return;
+    setDirectorText("");
+    await playRound(text);
   };
 
   const picked = characters.filter((c) => pickedIds.includes(c.character_id));
@@ -250,6 +331,14 @@ export default function TheaterPage() {
           <button type="button" onClick={startSession} className="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 cursor-pointer">
             <Plus size={14} className="inline mr-1" /> 创建剧场会话
           </button>
+          <button
+            type="button"
+            onClick={() => void playRound()}
+            disabled={!session || performing}
+            className="w-full px-3 py-2 mt-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-40 cursor-pointer"
+          >
+            <Play size={14} className="inline mr-1" /> {performing ? "演出中…" : "▶ 演出下一轮"}
+          </button>
         </div>
       </div>
 
@@ -303,11 +392,58 @@ export default function TheaterPage() {
                 )}
               </div>
 
-              {/* 演出消息流占位 */}
-              <div className="flex-1 rounded-xl border border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-xs p-8">
-                {session.pre_read_done
-                  ? "已预读取 ✓ · 演出流即将接入（讨论/演绎 runner）"
-                  : "完成预读取后开始演出"}
+              {/* 演出消息流 */}
+              <div className="flex-1 space-y-3">
+                {performMsgs.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-700 flex items-center justify-center text-slate-600 text-xs p-8">
+                    {session.pre_read_done
+                      ? "已预读取 ✓ · 点「▶ 演出下一轮」开始（AI 实时生成）"
+                      : "完成预读取后开始演出"}
+                  </div>
+                )}
+                {performMsgs.map((m, i) => {
+                  if (m.kind === "narrator") {
+                    return (
+                      <div key={i} className="text-center text-slate-400 italic text-xs leading-relaxed max-w-[85%] mx-auto">
+                        <div className="w-12 h-px bg-slate-700 mx-auto my-1.5" />
+                        {m.narrator}
+                        <div className="w-12 h-px bg-slate-700 mx-auto my-1.5" />
+                      </div>
+                    );
+                  }
+                  if (m.kind === "battle") {
+                    return (
+                      <div key={i} className="rounded-xl border border-red-500/35 bg-red-500/5 p-3">
+                        <p className="text-[11px] text-red-300 font-medium mb-1">⚔️ 战斗判定</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(m.meta || []).map((x, j) => (
+                            <span key={j} className="text-[10px] border border-slate-700 px-2 py-0.5 rounded text-slate-400">
+                              {x}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  const t = m.turn!;
+                  const color = colorOf(t.character_id);
+                  return (
+                    <div key={i} className="max-w-[82%]" style={{ borderLeft: `3px solid ${color.border}`, background: color.bg, borderRadius: 10, padding: "8px 12px" }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-semibold" style={{ color: color.name }}>{t.name}</span>
+                        {Object.keys(t.emotion || {}).length > 0 && (
+                          <span className="text-[10px] text-slate-500">情绪：{Object.entries(t.emotion).map(([k, v]) => `${k} ${v}`).join("、")}</span>
+                        )}
+                      </div>
+                      {t.speech && <div className="text-sm text-slate-100 leading-relaxed">{t.speech}</div>}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {t.thinking && <span className="chan think">思考：{t.thinking}</span>}
+                        {t.expression && <span className="chan face">表情：{t.expression}</span>}
+                        {t.action && <span className="chan act">动作：{t.action}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
@@ -319,8 +455,11 @@ export default function TheaterPage() {
             className="flex-1 bg-slate-800/80 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500/60"
             placeholder="导演指令：推进剧情 / 突发事件 / 指定角色行为…"
             disabled={!session}
+            value={directorText}
+            onChange={(e) => setDirectorText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleDirector(); }}
           />
-          <button type="button" disabled={!session} className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-40 cursor-pointer">
+          <button type="button" onClick={() => void handleDirector()} disabled={!session || performing} className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-40 cursor-pointer">
             发送指令
           </button>
         </div>

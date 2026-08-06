@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import json
+import re
 from pathlib import Path
 
 from src.characters.manager import get_character_manager
@@ -208,6 +210,164 @@ class TheaterManager:
         result["attacker"] = atk.name
         result["defender"] = dfn.name if dfn else "环境"
         return {"success": True, "result": result}
+
+    # ---------- 演出（AI 生成，接世界观/角色/情绪/Skills 风格） ----------
+    def _build_world_context(self, world: World | None) -> str:
+        if not world:
+            return "（未设置世界观）"
+        parts = [f"世界观：{world.worldview}"]
+        if world.history:
+            parts.append("已发生剧情：" + "；".join(world.history[-5:]))
+        if world.skill_ids:
+            parts.append("世界写作风格：" + "、".join(world.skill_ids))
+        return "\n".join(parts)
+
+    @staticmethod
+    def _parse_turn(text: str) -> dict:
+        """从 LLM 输出解析四通道（思考/表情/动作/台词），兼容 JSON 与标签格式。"""
+        text = text.strip()
+        # 去掉 ```json ... ``` 代码块包裹
+        if text.startswith("```"):
+            m = re.match(r"```(?:json)?\s*(.*?)\s*```", text, re.S)
+            if m:
+                text = m.group(1).strip()
+        # 尝试 JSON
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return {
+                    "thinking": str(data.get("thinking", "")).strip(),
+                    "expression": str(data.get("expression", "")).strip(),
+                    "action": str(data.get("action", "")).strip(),
+                    "speech": str(data.get("speech", "")).strip(),
+                }
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # 标签格式：【情绪】【内心】【表情】【动作】【台词】
+        result = {"thinking": "", "expression": "", "action": "", "speech": ""}
+        mapping = {
+            "内心": "thinking", "思考": "thinking", "情绪": "thinking",
+            "表情": "expression", "动作": "action", "台词": "speech",
+        }
+        for key, field in mapping.items():
+            m = re.search(rf"【{key}】\s*(.+?)(?=【|$)", text, re.S)
+            if m:
+                result[field] = m.group(1).strip()
+        if not result["speech"]:
+            # 兜底：整段当台词
+            result["speech"] = text
+        return result
+
+    async def perform_round(self, session_id: str, director: str = "") -> dict:
+        """执行一轮演出：旁白（小说式）→ 各角色四通道发言（AI 生成）。
+
+        战斗场景时，旁白用小说式文字描写打斗（参考网文），
+        数值判定作为可选补充（由前端按比重展示）。
+        """
+        from src.core.llm_client import create_llm
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        session = self.sessions.get(session_id)
+        if not session:
+            return {"success": False, "message": "会话不存在"}
+        world = self.worlds.get(session.world_id)
+        cm = get_character_manager()
+        chars = [cm.get(cid) for cid in session.character_ids if cm.get(cid)]
+        if not chars:
+            return {"success": False, "message": "没有可用角色"}
+
+        is_battle = str(session.scene.get("scene_type", "")) == "battle"
+        world_ctx = self._build_world_context(world)
+        record = getattr(session, "record", [])
+
+        # ---------- 1. 旁白：小说式场景/打斗描写 ----------
+        if is_battle:
+            narrator_sys = (
+                "你是一位小说打斗场面描写者。请用网络小说式的文字描写战斗过程："
+                "有招式动作、攻防转换、环境互动、力量与速度的对比，像小说正文一样有画面感。"
+                "禁止只写'他们打了起来'这类概括。2-4 句话。"
+            )
+        else:
+            narrator_sys = (
+                "你是一位小说旁白叙述者，写场景描写。文风简洁有画面感，像小说正文，"
+                "不解释、不评价、不替角色说话。2-3 句话。"
+            )
+        narrator_user = (
+            f"{world_ctx}\n\n场景：{session.scene}\n\n最近的剧情：\n"
+            + ("\n".join(str(x) for x in record[-6:]) or "（开场）")
+            + (f"\n\n导演指令：{director}" if director else "")
+        )
+        try:
+            llm = create_llm(model_params={"temperature": 0.8}, streaming=False)
+            resp = await llm.ainvoke([
+                SystemMessage(content=narrator_sys),
+                HumanMessage(content=narrator_user),
+            ])
+            narrator_text = str(resp.content).strip()
+        except Exception as e:
+            logger.error(f"旁白生成失败: {e}")
+            narrator_text = "（夜色很静，谁都没有先开口。）"
+
+        record.append(f"【旁白】{narrator_text}")
+
+        # ---------- 2. 各角色四通道发言 ----------
+        turns = []
+        other_names = [c.name for c in chars]
+        for c in chars:
+            emotion_note = f"当前情绪：{c.emotion_state or '平静'}，压力 {c.pressure}"
+            stats_note = "；".join(f"{k}{v}" for k, v in c.stats.items())
+            eq_note = "、".join(
+                f"{e.get('name','')}({e.get('effect','')})" for e in c.equipment
+            ) or "无"
+            skills_note = "、".join(c.skill_ids) or "无"
+            char_sys = (
+                f"你是小说角色「{c.name}」。"
+                f"类型：{'/'.join(c.types) or '通用'}。"
+                f"性格：三我占比 {c.base_ratio}，特质：{', '.join(t.name for t in c.traits) or '无'}。"
+                f"写作风格（SKILL）：{skills_note}——按风格控制你的讲话时机与方式。"
+                f"{emotion_note}，身体素质：{stats_note}，装备：{eq_note}。"
+                "你的话必须符合人设与世界观，情绪影响措辞与动作。"
+            )
+            char_user = (
+                f"{world_ctx}\n\n场景：{session.scene}\n\n最近的剧情：\n"
+                + ("\n".join(str(x) for x in record[-8:]) or "（开场）")
+                + f"\n\n轮到 {c.name} 发言。场上还有：{'、'.join(n for n in other_names if n != c.name)}。"
+                + ("\n\n这是战斗场景，你的动作可以是攻击/防御/闪避，但要具体、像小说。"
+                   if is_battle else "")
+                + "\n请严格按 JSON 输出：{\"thinking\":\"内心想法\",\"expression\":\"表情\",\"action\":\"动作\",\"speech\":\"台词\"}"
+            )
+            try:
+                resp = await llm.ainvoke([
+                    SystemMessage(content=char_sys),
+                    HumanMessage(content=char_user),
+                ])
+                turn = self._parse_turn(str(resp.content))
+            except Exception as e:
+                logger.error(f"角色 {c.name} 发言失败: {e}")
+                turn = {"thinking": "", "expression": "（沉默）", "action": "没有动作",
+                        "speech": "「……」"}
+            turn["character_id"] = c.character_id
+            turn["name"] = c.name
+            turn["emotion"] = dict(c.emotion_state or {})
+            turns.append(turn)
+            record.append(
+                f"{c.name}（思考：{turn['thinking']}）表情：{turn['expression']}；"
+                f"动作：{turn['action']}；台词：{turn['speech']}"
+            )
+            # 简单情绪演算：压力累积，发言后轻微波动
+            c.pressure = min(100, (c.pressure or 0) + 2)
+
+        session.record = record
+        session.save()
+        return {
+            "success": True,
+            "round": len(record),
+            "narrator": narrator_text,
+            "turns": turns,
+            "is_battle": is_battle,
+            "battle_ratio": session.battle_ratio,
+            "session": session.to_dict(),
+        }
 
 
 _manager: TheaterManager | None = None

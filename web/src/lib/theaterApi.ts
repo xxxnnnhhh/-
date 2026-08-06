@@ -94,3 +94,25 @@ export const backstageChat = (sessionId: string, message: string) =>
     method: "POST",
     body: JSON.stringify({ message }),
   });
+
+export const performRound = (sessionId: string, director = "") =>
+  request<{
+    success: boolean;
+    round: number;
+    narrator: string;
+    turns: Array<{
+      character_id: string;
+      name: string;
+      thinking: string;
+      expression: string;
+      action: string;
+      speech: string;
+      emotion: Record<string, number>;
+    }>;
+    is_battle: boolean;
+    battle_ratio: number;
+    session: TheaterSession;
+  }>(`/theater/sessions/${sessionId}/perform`, {
+    method: "POST",
+    body: JSON.stringify({ director }),
+  });
