@@ -403,6 +403,9 @@ export default function CharacterLibraryPage() {
   const [softRulesText, setSoftRulesText] = useState("");
   const [saved, setSaved] = useState(false);
   const [chatChar, setChatChar] = useState<Character | null>(null);
+  // 能力 / 装备 新增输入
+  const [newAbility, setNewAbility] = useState({ name: "", level: 1 });
+  const [newEquip, setNewEquip] = useState({ name: "", effect: "", slot: "武器" });
 
   const refresh = useCallback(async () => {
     const res = await fetchCharacters();
@@ -465,6 +468,11 @@ export default function CharacterLibraryPage() {
       soft_rules: softRulesText.split("\n").map((s) => s.trim()).filter(Boolean),
       temperature: draft.temperature,
       model_name: draft.model_name,
+      types: draft.types || [],
+      stats: draft.stats || { 力量: 50, 敏捷: 50, 体质: 50, 智力: 50, 精神: 50 },
+      abilities: draft.abilities || [],
+      equipment: draft.equipment || [],
+      skill_ids: draft.skill_ids || [],
     });
     setSaved(true);
     await refresh();
@@ -573,6 +581,169 @@ export default function CharacterLibraryPage() {
             <EntityModelSelect
               value={draft.model_name}
               onChange={(modelId) => setDraft((d) => ({ ...d, model_name: modelId }))}
+            />
+          </Field>
+
+          {/* 角色类型 */}
+          <Field label="角色类型（可多选：战斗型 / 剧情型 / 对话型）">
+            <div className="flex gap-2">
+              {[
+                { id: "fight", label: "战斗型" },
+                { id: "plot", label: "剧情型" },
+                { id: "talk", label: "对话型" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      types: (d.types || []).includes(t.id)
+                        ? (d.types || []).filter((x) => x !== t.id)
+                        : [...(d.types || []), t.id],
+                    }))
+                  }
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs border cursor-pointer transition-colors ${
+                    (draft.types || []).includes(t.id)
+                      ? "bg-indigo-500/15 border-indigo-500/50 text-indigo-300"
+                      : "border-slate-700 bg-slate-800/70 text-slate-400"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {/* 身体素质五维 */}
+          <Field label="身体素质五维（力量 / 敏捷 / 体质 / 智力 / 精神）">
+            <div className="space-y-2 rounded-lg border border-slate-700/60 bg-slate-800/40 p-3">
+              {Object.keys(draft.stats || { 力量: 50, 敏捷: 50, 体质: 50, 智力: 50, 精神: 50 }).map((k) => (
+                <div key={k} className="flex items-center gap-3">
+                  <span className="w-10 text-xs text-slate-400">{k}</span>
+                  <input
+                    type="range" min={1} max={100} value={draft.stats?.[k] ?? 50}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, stats: { ...(d.stats || {}), [k]: Number(e.target.value) } }))
+                    }
+                    className="flex-1 accent-indigo-500"
+                  />
+                  <span className="w-8 text-right text-xs text-slate-300 font-mono">{draft.stats?.[k] ?? 50}</span>
+                </div>
+              ))}
+            </div>
+          </Field>
+
+          {/* 能力 */}
+          <Field label="能力 / 专长（影响战斗判定加值）">
+            <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {(draft.abilities || []).map((a, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-slate-700/60 border border-slate-600 px-2 py-1 rounded text-slate-300">
+                    {a.name} <b className="text-amber-400">Lv{a.level || 1}</b>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, abilities: (d.abilities || []).filter((_, j) => j !== i) }))}
+                      className="text-slate-500 hover:text-red-400 cursor-pointer"
+                      aria-label={`删除能力 ${a.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {(draft.abilities || []).length === 0 && (
+                  <span className="text-[11px] text-slate-600">暂无能力</span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className={`${inputCls} flex-1`}
+                  placeholder="能力名，如：伞刃精通"
+                  value={newAbility.name}
+                  onChange={(e) => setNewAbility((a) => ({ ...a, name: e.target.value }))}
+                />
+                <input
+                  className={`${inputCls} w-16 text-center`}
+                  type="number" min={1} max={10} value={newAbility.level}
+                  onChange={(e) => setNewAbility((a) => ({ ...a, level: Number(e.target.value) || 1 }))}
+                  title="等级"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newAbility.name.trim()) return;
+                    setDraft((d) => ({ ...d, abilities: [...(d.abilities || []), { name: newAbility.name.trim(), level: newAbility.level }] }));
+                    setNewAbility({ name: "", level: 1 });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-500 cursor-pointer"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+          </Field>
+
+          {/* 装备道具 */}
+          <Field label="装备 / 道具（战斗中提供加成，如 力量+5）">
+            <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {(draft.equipment || []).map((e, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-indigo-500/10 border border-indigo-500/30 px-2 py-1 rounded text-indigo-300">
+                    {e.name} {e.effect ? <b className="text-amber-400">{e.effect}</b> : null}
+                    <span className="text-slate-500">[{e.slot || "道具"}]</span>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, equipment: (d.equipment || []).filter((_, j) => j !== i) }))}
+                      className="text-slate-500 hover:text-red-400 cursor-pointer"
+                      aria-label={`删除装备 ${e.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {(draft.equipment || []).length === 0 && (
+                  <span className="text-[11px] text-slate-600">暂无装备</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input className={inputCls} placeholder="装备名，如：青骨伞" value={newEquip.name}
+                  onChange={(e) => setNewEquip((x) => ({ ...x, name: e.target.value }))} />
+                <input className={inputCls} placeholder="效果，如：力量+5" value={newEquip.effect}
+                  onChange={(e) => setNewEquip((x) => ({ ...x, effect: e.target.value }))} />
+                <select className={inputCls} value={newEquip.slot}
+                  onChange={(e) => setNewEquip((x) => ({ ...x, slot: e.target.value }))}>
+                  <option value="武器">武器</option>
+                  <option value="防具">防具</option>
+                  <option value="道具">道具</option>
+                  <option value="饰品">饰品</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newEquip.name.trim()) return;
+                    setDraft((d) => ({ ...d, equipment: [...(d.equipment || []), { name: newEquip.name.trim(), effect: newEquip.effect.trim(), slot: newEquip.slot }] }));
+                    setNewEquip({ name: "", effect: "", slot: "武器" });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-500 cursor-pointer"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+          </Field>
+
+          {/* Skills 写作风格挂载 */}
+          <Field label="Skills 写作风格（逗号分隔 skill_id，如 style-taciturn；可在 Skills 标签页新建风格）">
+            <input
+              className={`${inputCls} font-mono text-xs`}
+              value={(draft.skill_ids || []).join(", ")}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  skill_ids: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
+                }))
+              }
+              placeholder="style-taciturn, style-noir"
             />
           </Field>
 
