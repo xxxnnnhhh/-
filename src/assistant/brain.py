@@ -54,6 +54,36 @@ def _workflow_structure_summary() -> str:
     return "\n".join(lines)
 
 
+def describe_workflows() -> str:
+    """返回 7 个工作流的详细结构（节点/类型/关键任务）。"""
+    from src.config import WORKFLOWS_DIR
+    lines = []
+    for wf_id, wf_name in WORKFLOW_ORDER:
+        def_file = WORKFLOWS_DIR / wf_id / "definition.json"
+        if not def_file.exists():
+            lines.append(f"- {wf_name}（{wf_id}）：定义文件不存在")
+            continue
+        try:
+            import json as _json
+            definition = _json.loads(def_file.read_text(encoding="utf-8"))
+            nodes = definition.get("nodes", [])
+            parts = []
+            for n in nodes:
+                nid = n.get("id", "?")
+                label = n.get("label", nid)
+                ntype = n.get("node_type", "agent")
+                snippet = ""
+                fm = (n.get("first_message") or "").strip()
+                if fm:
+                    snippet = "｜" + fm[:50].replace("\n", " ")
+                parts.append(f"{nid}（{label}·{ntype}{snippet}）")
+            lines.append(f"## {wf_name}（{wf_id}）")
+            lines.append("\n".join(parts))
+        except Exception:
+            continue
+    return "\n\n".join(lines)
+
+
 def _read_first(path: Path, limit: int) -> str:
     if not path.is_file():
         return ""
@@ -241,9 +271,17 @@ SYSTEM_TEMPLATE = """你是「{book}」这本书的总大脑——一个能通�
 当用户要求"生成世界观 / 角色 / 大纲 / 跑流水线 / 生成第N章（用流水线）"时：
 {"reply": "已准备好启动对应步骤，请确认", "action": {"operation": "run_step", "arguments": {"step_key": "build"}}}
 
+当用户要求"把整个流水线串起来跑 / 连跑全部 / 一口气生成"时：
+{"reply": "已准备好从头连跑整条流水线（世界观→角色→故事→卷纲→逐章生产/后验/润色），请确认", "action": {"operation": "run_pipeline", "arguments": {"reset": true}}}
+
+当用户要求"描述 / 介绍 / 看看有哪些工作流 / 各节点是干嘛的"时，直接输出纯回复即可，不需要动作；若一定要用动作，用 describe_workflows：
+{"reply": "这就把 7 个工作流的结构读出来给你看，请确认", "action": {"operation": "describe_workflows", "arguments": {}}}
+
 当用户要求"调整/修改工作流里的某个节点"（改提示词、参数、标签）时，你必须引用上面"可调配工作流"里的真实节点 ID：
 {"reply": "准备把大纲导演的提示词改为更关注伏笔，请确认", "action": {"operation": "workflow_update_node", "arguments": {"workflow_id": "bishu-novel-mvp", "node_id": "agent_od", "field": "first_message", "new_value": "……新的完整提示词……", "reason": "用户要求加强伏笔关注"}}}
 允许修改的 field：first_message（给 AI 的任务指令）、system_prompt_template（补充规则）、label（节点名称）、model_override（模型覆盖，格式 供应商:模型 或留空）。
+
+你只能使用以下操作：chapter_body_update / run_step / run_pipeline / workflow_update_node / describe_workflows。除此之外一律用纯回复，不要发明新操作。
 
 可用 step_key：build（世界观构建）、character（角色创建）、story-plan（故事规划）、outline（卷纲近纲）、
 chapter-0001-mvp（第1章生产）、chapter-0001-post-hoc（后验）、chapter-0001-polish（润色），依此类推。

@@ -122,6 +122,14 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
   failed: { label: "失败", cls: "text-red-400" },
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  chapter_body_update: "写入章节正文",
+  run_step: "运行流水线步骤",
+  run_pipeline: "连跑整条流水线",
+  workflow_update_node: "修改工作流节点",
+  describe_workflows: "描述工作流",
+};
+
 const WORKFLOW_LINKS: { id: string; label: string; desc: string }[] = [
   { id: "bishu-novel-build", label: "世界观构建", desc: "六维世界规则 → world_foundation.md" },
   { id: "bishu-novel-character", label: "角色创建", desc: "骨架/信念/深层/声线 → 角色档案" },
@@ -575,6 +583,10 @@ export default function BookShelfPage() {
           ...prev,
           { role: "assistant", content: `✅ 工作流已更新：${data.workflow_id} / ${data.node_id} / ${data.field}（${data.reason || ""}）` },
         ]);
+      } else if (data.result) {
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: String(data.result) }]);
+      } else if (data.operation === "run_pipeline") {
+        setAsstMsgs((prev) => [...prev, { role: "assistant", content: "🚀 整条流水线已串起来开跑，我盯着进度，有失败我会自动诊断。" }]);
       }
       await fetchContent(selected.project_id);
     } catch (e) {
@@ -689,7 +701,7 @@ export default function BookShelfPage() {
         {pendingActions.map((action, ai) => (
           <div key={ai} className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
             <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
-              <Brain size={15} aria-hidden="true" /> 助手提案：{action.operation === "chapter_body_update" ? "写入章节正文" : action.operation === "run_step" ? "运行流水线步骤" : action.operation === "workflow_update_node" ? "修改工作流节点" : action.operation}
+              <Brain size={15} aria-hidden="true" /> 助手提案：{ACTION_LABELS[action.operation] || action.operation}
             </div>
             <p className="mt-1 text-xs text-slate-400">{action.reply}</p>
             {action.operation === "chapter_body_update" && (
