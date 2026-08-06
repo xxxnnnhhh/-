@@ -49,6 +49,7 @@ from src.theater.routes import router as theater_router
 from src.web.search_routes import router as search_router
 from src.web.workflow_routes import router as workflow_router, tasks_router
 from src.web.workflow_node_control_routes import router as workflow_node_control_router
+from src.novel_pipeline.routes import router as novel_pipeline_router
 from src.web.ws_handlers import handle_chat_ws, handle_events_ws
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,11 @@ async def lifespan(app: FastAPI):
         session_mgr.inject_dependencies(workflow_manager=workflow_mgr)
         logger.info("WorkflowManager 已初始化")
 
+        # 初始化小说管线运行器（连跑 7 个笔枢写作工作流）
+        from src.novel_pipeline.runner import NovelPipelineRunner
+        novel_pipeline_runner = NovelPipelineRunner(workflow_mgr)
+        logger.info("NovelPipelineRunner 已初始化")
+
         # 初始化 ToolRegistry 并统一注册所有工具工厂
         registry = ToolRegistry("config/tool_groups_config.json")
         register_all_tool_factories(registry,
@@ -439,6 +445,7 @@ async def lifespan(app: FastAPI):
         app.state.approval_manager = approval_mgr
         app.state.tool_registry = registry
         app.state.workflow_manager = workflow_mgr
+        app.state.novel_pipeline_runner = novel_pipeline_runner
         app.state.cron_scheduler = cron_scheduler
         app.state.cron_job_manager = cron_job_mgr
 
@@ -583,6 +590,7 @@ def create_app(extension_manager: ExtensionManager | None = None) -> FastAPI:
     application.include_router(workflow_router)
     application.include_router(tasks_router)
     application.include_router(workflow_node_control_router)
+    application.include_router(novel_pipeline_router)
     application.include_router(extension_router)
     application.include_router(plugin_router)
     for owner, router in manager.routers:

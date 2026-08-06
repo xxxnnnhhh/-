@@ -6,6 +6,7 @@ export const CORE_TAB_IDS = [
   "characters",
   "orchestration",
   "workflow",
+  "novel-pipeline",
   "cron",
   "skills",
   "rules",
