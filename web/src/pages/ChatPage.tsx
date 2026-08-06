@@ -45,7 +45,6 @@ import ApprovalPanel from "../components/ApprovalPanel";
 import ResizableSidePanel from "../components/ResizableSidePanel";
 import MonitoringCard from "../components/MonitoringCard";
 import ModelSwitcher from "../components/ModelSwitcher";
-import { shouldShowModelSwitcher } from "../lib/model-options";
 import ChatWorkflowTasks, { upsertWorkflowTask } from "../components/workflow/ChatWorkflowTasks";
 
 import {
@@ -299,7 +298,6 @@ export default function ChatPage() {
 
   const isViewingOther = viewingSessionId !== null;
   const isReadOnly = isViewingOther && !isSessionInteractive(viewingSession);
-  const showModelSwitcher = shouldShowModelSwitcher(viewingSession);
   const hasConfiguredModel = Boolean(viewingSession?.model_id);
   const canSend = Boolean(
     targetSessionId &&
@@ -736,32 +734,31 @@ export default function ChatPage() {
                     </span>
                   )}
                 </div>
-                {showModelSwitcher ? (
-                  <ModelSwitcher
-                    sessionId={targetSessionId}
-                    session={viewingSession}
-                    disabled={isReadOnly || isStreamingForCurrentView}
-                    onUpdated={(modelId, modelParams) => {
-                      setViewingSession((current) => current ? {
-                        ...current,
-                        model_id: modelId,
-                        model_params: modelParams,
-                      } : current);
-                    }}
-                    onOpenSettings={() => {
-                      const search = patchSearchParams(window.location.search, {
-                        tab: "settings",
-                        session_id: null,
-                      });
-                      window.history.pushState(
-                        window.history.state,
-                        "",
-                        `${window.location.pathname}${search}${window.location.hash}`,
-                      );
-                      window.dispatchEvent(new PopStateEvent("popstate"));
-                    }}
-                  />
-                ) : null}
+                {/* 模型切换始终显示在导出旁边；不可切换的会话由组件内部禁用 */}
+                <ModelSwitcher
+                  sessionId={targetSessionId}
+                  session={viewingSession}
+                  disabled={isReadOnly || isStreamingForCurrentView}
+                  onUpdated={(modelId, modelParams) => {
+                    setViewingSession((current) => current ? {
+                      ...current,
+                      model_id: modelId,
+                      model_params: modelParams,
+                    } : current);
+                  }}
+                  onOpenSettings={() => {
+                    const search = patchSearchParams(window.location.search, {
+                      tab: "settings",
+                      session_id: null,
+                    });
+                    window.history.pushState(
+                      window.history.state,
+                      "",
+                      `${window.location.pathname}${search}${window.location.hash}`,
+                    );
+                    window.dispatchEvent(new PopStateEvent("popstate"));
+                  }}
+                />
                 {/* 发送/中止按钮 */}
                 {isStreamingForCurrentView ? (
                   <button

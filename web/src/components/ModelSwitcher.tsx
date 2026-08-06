@@ -198,7 +198,8 @@ export default function ModelSwitcher({
     );
   };
 
-  const switchDisabled = disabled || !sessionId || session?.type !== "main" || session?.runtime_scope === "workflow";
+  // 主对话始终允许切换模型（即使会话带 workflow_id / runtime_scope=workflow）
+  const switchDisabled = disabled || !sessionId || session?.type !== "main";
 
   return (
     <div ref={rootRef} className="relative shrink-0">
