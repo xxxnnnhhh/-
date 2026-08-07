@@ -579,6 +579,13 @@ class CreateAndAttachTaskArgs(BaseModel):
         default=None,
         description="named_shared 模式使用的安全共享名称",
     )
+    workspace_override: str | None = Field(
+        default=None,
+        description=(
+            "直通工作区绝对路径（可选）。仅允许在项目/数据/工作区根目录内；"
+            "提供后忽略 workspace_mode/workspace_ref，用于让任务共享某本书的工作区。"
+        ),
+    )
     main_takeover: bool = Field(
         default=False,
         description="是否启用 Main 接管审批；默认关闭，启用后每个 Agent 节点完成时等待 Main 审批",
@@ -846,6 +853,7 @@ def create_create_and_attach_task_tool(
         selected_node_ids: list[str] | None = None,
         workspace_mode: str = "task_isolated",
         workspace_ref: str | None = None,
+        workspace_override: str | None = None,
         main_takeover: bool = False,
     ) -> str:
         ctx = get_session_context()
@@ -867,6 +875,7 @@ def create_create_and_attach_task_tool(
                 selected_node_ids=selected_node_ids,
                 workspace_mode=workspace_mode,
                 workspace_ref=workspace_ref,
+                workspace_override=workspace_override,
                 main_takeover=main_takeover,
             )
             return json.dumps(result, ensure_ascii=False)

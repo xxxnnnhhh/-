@@ -104,6 +104,9 @@ async def get_or_create_main_session(project_id: str, request: Request):
                 + "\n\n你是这本书的总大脑。可以回答关于书的问题，并用 list_workflows / get_workflow / "
                   "create_and_attach_task / set_workflow_variable / start_workflow_task / approve_node / "
                   "update_workflow_node 等工具创建、启动、审批、修改工作流。所有写入操作先向用户说明。"
+                  "\n\n重要：用 create_and_attach_task 为本书创建工作流任务时，必须传 "
+                  f"workspace_override={project.workspace}（本书共享工作区），"
+                  "这样任务之间才能共享世界观/角色/大纲/章节文件，串成完整管线。"
             )
             session.system_prompt = (session.system_prompt or "") + extra
             if hasattr(session, "async_save"):

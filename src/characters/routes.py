@@ -60,6 +60,19 @@ class ChatRequest(BaseModel):
     search: bool = Field(default=False, description="是否联网搜索最新资料")
 
 
+class CharacterPatch(BaseModel):
+    base_ratio: dict | None = None
+    types: list[str] | None = None
+    stats: dict | None = None
+    summary: str | None = None
+    abilities: list[dict] | None = None
+    equipment: list[dict] | None = None
+    skill_ids: list[str] | None = None
+    soft_rules: list[str] | None = None
+    hard_rules: list[str] | None = None
+    temperature: float | None = None
+
+
 def _with_log_path(character: dict) -> dict:
     result = dict(character)
     result["log_path"] = str(log_file_for(character.get("name", "")))
@@ -92,6 +105,18 @@ async def delete_character(character_id: str):
     if not get_character_manager().delete(character_id):
         raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
     return {"success": True, "message": f"角色 {character_id} 已删除"}
+
+
+@router.put("/{character_id}")
+async def update_character(character_id: str, body: CharacterPatch):
+    """局部更新角色（三我/类型/五维/摘要等），供书架内联编辑。"""
+    mgr = get_character_manager()
+    if not mgr.get(character_id):
+        raise HTTPException(status_code=404, detail=f"未找到角色 {character_id}")
+    data = body.model_dump(exclude_none=True)
+    data["character_id"] = character_id
+    saved = mgr.save(data)
+    return {"success": True, "character": saved.to_dict()}
 
 
 @router.post("/{character_id}/memory/clear")

@@ -47,6 +47,8 @@ interface NovelProject {
   assistant_enabled: boolean;
   assistant_model: string;
   archive_root: string;
+  main_session_id: string;
+  rules: string;
   created_at: string;
   updated_at: string;
   status: "idle" | "running" | "completed" | "failed" | "stopped";
@@ -189,6 +191,8 @@ export default function BookShelfPage() {
   const [mainMsgs, setMainMsgs] = useState<{ role: string; content: string }[]>([]);
   const [mainInput, setMainInput] = useState("");
   const [mainBusy, setMainBusy] = useState(false);
+  const [charEdit, setCharEdit] = useState<{ id: string; ratio: { id: string; ego: string; superego: string } } | null>(null);
+  const [rulesDraft, setRulesDraft] = useState("");
   const lastDiagRef = useRef("");
   const lastStatusRef = useRef("");
 
@@ -248,6 +252,12 @@ export default function BookShelfPage() {
     }
   }, [selectedId, fetchContent]);
 
+  useEffect(() => {
+    if (content?.project.rules !== undefined) {
+      setRulesDraft(content.project.rules || "");
+    }
+  }, [content?.project.rules]);
+
   // 进入「助手」分页：自动接入 Workflow Main 接管
   useEffect(() => {
     if (tab !== "assistant" || !selected || mainSessionId) return;
@@ -261,7 +271,25 @@ export default function BookShelfPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "创建 Main 会话失败");
         setMainSessionId(data.session_id);
-        setMainMsgs([{ role: "assistant", content: "🧠 已连接 Workflow Main（Main 接管）。我是这本书的总大脑：可以回答书的问题、填写工作流参数、创建/启动任务、审批节点、修改工作流节点——动手前会先向你说明。" }]);
+        // 加载历史消息（退出再进/刷新后也能看到之前的对话）
+        let history: { role: string; content: string }[] = [];
+        try {
+          const hres = await fetch(`/api/sessions/${data.session_id}`);
+          const hdata = await hres.json();
+          history = (hdata.messages || [])
+            .filter((m: { type?: string; content?: string }) => (m.type === "user" || m.type === "assistant") && String(m.content || "").trim())
+            .map((m: { type?: string; content?: string }) => ({
+              role: m.type === "user" ? "user" : "assistant",
+              content: String(m.content || "").replace(/^<SYSTEM_INJECTION>[\s\S]*?<\/SYSTEM_INJECTION>/, "").trim(),
+            }))
+            .filter((m: { content: string }) => m.content);
+        } catch {
+          /* 历史加载失败不阻塞 */
+        }
+        setMainMsgs([
+          { role: "assistant", content: "🧠 已连接 Workflow Main（Main 接管）。我是这本书的总大脑：可以回答书的问题、填写工作流参数、创建/启动任务、审批节点、修改工作流节点——动手前会先向你说明。" },
+          ...history,
+        ]);
       } catch (e) {
         setMainMsgs([{ role: "assistant", content: `（Main 接管会话创建失败：${e instanceof Error ? e.message : "未知错误"}。仍可使用内置助手）` }]);
       }
@@ -511,6 +539,57 @@ export default function BookShelfPage() {
       await fetchContent(selected.project_id);
     } catch {
       showMsg("移除失败");
+    }
+  };
+
+  const saveCharacterRatio = async () => {
+    if (!charEdit) return;
+    const ratio = {
+      id: Math.max(0, Math.min(100, parseInt(charEdit.ratio.id, 10) || 0)),
+      ego: Math.max(0, Math.min(100, parseInt(charEdit.ratio.ego, 10) || 0)),
+      superego: Math.max(0, Math.min(100, parseInt(charEdit.ratio.superego, 10) || 0)),
+    };
+    try {
+      const res = await fetch(`/api/characters/${charEdit.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base_ratio: ratio }),
+      });
+      if (!res.ok) throw new Error("保存失败");
+      setCharEdit(null);
+      if (selected) await fetchContent(selected.project_id);
+      showMsg("三我占比已保存，写手/剧场会按新性格输出");
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const saveRules = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: rulesDraft }),
+      });
+      if (!res.ok) throw new Error("保存失败");
+      await fetchContent(selected.project_id);
+      showMsg("写作规则已保存，章节写手与总大脑都会读取");
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const importCharacters = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/import-characters`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "归档失败");
+      await fetchContent(selected.project_id);
+      showMsg(`已归档 ${data.imported?.length || 0} 个角色到人物库`);
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "归档失败");
     }
   };
 
@@ -1017,6 +1096,26 @@ export default function BookShelfPage() {
           <div className="text-sm font-medium text-slate-200">创意</div>
           <p className="mt-1 text-sm text-slate-400 whitespace-pre-wrap">{selected.premise || "（未填写）"}</p>
         </div>
+        <div className="rounded-lg border border-white/5 bg-slate-900/60 p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-slate-200">写作规则</div>
+            <button
+              type="button"
+              onClick={saveRules}
+              className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1 text-xs text-white transition-colors"
+            >
+              保存规则
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">章节写手与总大脑都会读取这些规则（如"主角必须隐忍""每章结尾留钩""战斗用短句"）</p>
+          <textarea
+            className="mt-2 w-full rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
+            rows={3}
+            value={rulesDraft}
+            onChange={(e) => setRulesDraft(e.target.value)}
+            placeholder="例如：主角必须隐忍、不主动解释；每章结尾留悬念；对话按三我性格渲染…"
+          />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div className="rounded-lg border border-white/5 bg-slate-900/60 px-3 py-2">
             <span className="text-slate-500">工作区（子工作流共享）：</span>
@@ -1082,13 +1181,22 @@ export default function BookShelfPage() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-sm text-slate-400">这本书关联的人物库角色（{chars.length}）</p>
-          <button
-            type="button"
-            onClick={openCharPicker}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white transition-colors"
-          >
-            <UserPlus size={15} aria-hidden="true" /> 从人物库添加
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={importCharacters}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 transition-colors"
+            >
+              <Sparkles size={15} aria-hidden="true" /> 归档流水线角色
+            </button>
+            <button
+              type="button"
+              onClick={openCharPicker}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white transition-colors"
+            >
+              <UserPlus size={15} aria-hidden="true" /> 从人物库添加
+            </button>
+          </div>
         </div>
         {chars.length === 0 ? (
           <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
@@ -1115,11 +1223,36 @@ export default function BookShelfPage() {
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  {(Object.entries(c.base_ratio || {})).map(([k, v]) => (
-                    <span key={k} className="rounded bg-white/5 px-2 py-0.5 text-slate-300">
-                      {k === "id" ? "本我" : k === "ego" ? "自我" : "超我"} {v}%
-                    </span>
-                  ))}
+                  {charEdit?.id === c.character_id ? (
+                    <div className="flex items-center gap-2">
+                      {(["id", "ego", "superego"] as const).map((k) => (
+                        <label key={k} className="flex items-center gap-1 text-slate-400">
+                          {k === "id" ? "本我" : k === "ego" ? "自我" : "超我"}
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={charEdit.ratio[k]}
+                            onChange={(e) => setCharEdit((p) => p ? { ...p, ratio: { ...p.ratio, [k]: e.target.value } } : p)}
+                            className="w-14 rounded border border-white/10 bg-slate-950 px-1.5 py-0.5 text-xs text-slate-200"
+                          />
+                        </label>
+                      ))}
+                      <button type="button" onClick={saveCharacterRatio} className="rounded bg-amber-600 px-2 py-1 text-white">保存</button>
+                      <button type="button" onClick={() => setCharEdit(null)} className="rounded border border-white/10 px-2 py-1 text-slate-300">取消</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setCharEdit({
+                      id: c.character_id,
+                      ratio: {
+                        id: String(c.base_ratio?.id ?? 33),
+                        ego: String(c.base_ratio?.ego ?? 34),
+                        superego: String(c.base_ratio?.superego ?? 33),
+                      },
+                    })} className="rounded bg-white/5 px-2 py-0.5 text-slate-300 hover:bg-white/10">
+                      三我：本我{c.base_ratio?.id ?? 33} / 自我{c.base_ratio?.ego ?? 34} / 超我{c.base_ratio?.superego ?? 33} ✎
+                    </button>
+                  )}
                   {(Object.entries(c.stats || {})).slice(0, 5).map(([k, v]) => (
                     <span key={k} className="rounded bg-white/5 px-2 py-0.5 text-slate-400">
                       {k} {v}

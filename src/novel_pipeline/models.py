@@ -108,6 +108,7 @@ class NovelProject:
     assistant_model: str = ""                                  # 总大脑模型（空=默认 glm-4.6）
     archive_root: str = ""                                     # 存档根目录（空=默认 E:\故事机器\小说存档）
     main_session_id: str = ""                                  # 该书的总大脑 Workflow Main 会话
+    rules: str = ""                                            # 用户写作规则（注入写手/总大脑）
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     status: str = "idle"              # idle/running/completed/failed/stopped
@@ -141,6 +142,7 @@ class NovelProject:
             "assistant_model": self.assistant_model,
             "archive_root": self.archive_root,
             "main_session_id": self.main_session_id,
+            "rules": self.rules,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": self.status,
@@ -194,6 +196,7 @@ class NovelProject:
             assistant_model=data.get("assistant_model", "") or "",
             archive_root=data.get("archive_root", "") or "",
             main_session_id=data.get("main_session_id", "") or "",
+            rules=data.get("rules", "") or "",
             created_at=data.get("created_at", _now_iso()),
             updated_at=data.get("updated_at", _now_iso()),
             status=data.get("status", "idle") or "idle",
@@ -261,11 +264,14 @@ class NovelProject:
             }
         if step.key.endswith("-mvp"):
             prev_ch = max(0, int(step.chapter_number or 1) - 1)
+            intent = self.human_intent
+            if self.rules.strip():
+                intent = f"【本书写作规则】\n{self.rules.strip()}\n\n【人类意图】\n{intent}".strip()
             return {
                 **common,
                 "chapter_number": zero_pad_chapter(step.chapter_number or 1),
                 "prev_chapter": zero_pad_chapter(prev_ch),
-                "human_intent": self.human_intent,
+                "human_intent": intent,
                 "world_intent": self.world_intent,
                 "target_word_count": self.target_word_count,
                 "writer_type": self.writer_type,

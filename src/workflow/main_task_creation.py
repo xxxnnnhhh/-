@@ -122,6 +122,7 @@ class WorkflowMainTaskCreationMixin:
         selected_node_ids: list[str] | None = None,
         workspace_mode: str = "task_isolated",
         workspace_ref: str | None = None,
+        workspace_override: str | None = None,
         main_takeover: bool = False,
     ) -> dict:
         """为已有的 Chat Main 创建可独立寻址的 pre_running task。
@@ -262,7 +263,24 @@ class WorkflowMainTaskCreationMixin:
             )
 
         try:
-            if workspace_mode == "legacy_shared":
+            if workspace_override:
+                # 直通指定工作区（如本书工作区），校验必须在允许目录内
+                from pathlib import Path
+                from src.config import DATA_DIR, BASE_DIR
+                ws_path = Path(workspace_override).expanduser().resolve()
+                allowed = (
+                    DATA_DIR.resolve(),
+                    BASE_DIR.resolve(),
+                    self._ws_manager.base_dir.resolve(),
+                )
+                if not any(ws_path.is_relative_to(root) for root in allowed):
+                    return {
+                        "success": False,
+                        "message": f"工作区路径越界: {workspace_override}",
+                    }
+                ws_path.mkdir(parents=True, exist_ok=True)
+                workspace = ws_path
+            elif workspace_mode == "legacy_shared":
                 workspace = self._ws_manager.create_workflow_workspace(workflow_id)
             else:
                 workspace = self._ws_manager.create_main_task_workspace(

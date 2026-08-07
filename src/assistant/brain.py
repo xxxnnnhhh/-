@@ -103,6 +103,8 @@ def plan_pipeline(project) -> str:
         lines.append("前置检查：缺 " + "、".join(missing) + " —— 会先跑对应步骤补齐。")
     else:
         lines.append("前置检查：通过，所需基础文件齐备。")
+    if project.rules.strip():
+        lines.append("已读取本书写作规则：" + project.rules.strip().replace("\n", " / ")[:200])
     return "\n".join(lines)
 
 
@@ -176,6 +178,45 @@ def _character_lines(characters: list[dict]) -> str:
             f"- {name}（{types}）三我占比 {ratio_txt}；特质：{traits}；五维：{stats}；装备：{eq}；写作风格：{skills}"
         )
     return "\n".join(lines) or "（尚未关联角色）"
+
+
+def sync_character_emotions(project) -> dict:
+    """把人物库角色的三我占比/情绪同步进章节写手读的 character_voice.md。
+
+    让流水线章节正文的对话也按三我+情绪渲染（情绪算法贯穿所有文本输出）。
+    """
+    from src.characters.manager import get_character_manager
+    from src.characters.models import Character
+    ws = Path(project.workspace)
+    voice_file = ws / "meta" / "character_voice.md"
+    mgr = get_character_manager()
+    lines = ["", "## 三我占比与情绪（情绪驱动对话规则）", ""]
+    added = 0
+    for cid in project.character_ids:
+        c = mgr.get(cid)
+        if c is None:
+            c = Character.load(cid)  # 跨进程/缓存未刷新时兜底
+        if c is None:
+            continue
+        ratio = c.base_ratio or {}
+        emo = (c.emotion_state or {}).get("emotion") or "平静"
+        lines.append(
+            f"- {c.name}：本我{ratio.get('id', 33)}% / 自我{ratio.get('ego', 34)}% / "
+            f"超我{ratio.get('superego', 33)}%；当前情绪：{emo}。"
+            "对话按三我占比与情绪渲染：本我高→冲动直率、脱口而出；超我高→克制守序、权衡措辞；"
+            "愤怒→短句、动作先于语言；恐惧→回避、语无伦次、眼神躲闪；悲伤→迟缓、多停顿、少言。"
+        )
+        added += 1
+    if added == 0:
+        return {"success": True, "added": 0, "message": "无角色可同步"}
+    block = "\n".join(lines) + "\n"
+    text = voice_file.read_text(encoding="utf-8") if voice_file.exists() else ""
+    marker = "## 三我占比与情绪"
+    if marker in text:
+        text = text.split(marker)[0].rstrip() + "\n"
+    voice_file.parent.mkdir(parents=True, exist_ok=True)
+    voice_file.write_text(text + block, encoding="utf-8")
+    return {"success": True, "added": added, "message": f"已同步 {added} 个角色的三我/情绪到写手上下文"}
 
 
 def build_context(project) -> str:
@@ -272,6 +313,7 @@ def build_context(project) -> str:
         f"## 作品《{project.name}》",
         f"类型：{project.genre or '未设置'}　语言：{project.language}",
         f"创意：{project.premise or '（无）'}",
+        f"写作规则：{project.rules or '（未设置）'}",
         "",
         "## 世界观",
         world_foundation or "（尚未生成）",
@@ -703,7 +745,7 @@ _PROJECT_UPDATE_FIELDS = {
     "name": str, "premise": str, "genre": str, "language": str,
     "target_word_count": str, "estimated_length": str, "words_per_chapter": str,
     "human_intent": str, "world_intent": str, "writer_type": str,
-    "assistant_model": str, "archive_root": str,
+    "assistant_model": str, "archive_root": str, "rules": str,
     "chapters": list, "assistant_enabled": bool,
 }
 

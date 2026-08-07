@@ -105,6 +105,7 @@ class NovelPipelineRunner:
                 step.status = "completed"
                 step.error = ""
                 step.completed_at = _now_iso()
+                self._post_step_hooks(project, step)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -128,6 +129,20 @@ class NovelPipelineRunner:
             raise
         finally:
             self._running.pop(project.project_id, None)
+
+    def _post_step_hooks(self, project: NovelProject, step: PipelineStep) -> None:
+        """步骤完成后的钩子：角色自动入库 / 章节生产前情绪同步。"""
+        try:
+            if step.key == "character":
+                from .import_characters import import_characters
+                result = import_characters(project)
+                logger.info("流水线角色自动入库: %s", result.get("imported"))
+            if step.key.endswith("-mvp"):
+                from src.assistant.brain import sync_character_emotions
+                result = sync_character_emotions(project)
+                logger.info("章节前情绪同步: %s", result.get("message"))
+        except Exception:
+            logger.exception("流水线步骤后置钩子失败（不影响主流程）")
 
     async def stop(self, project_id: str) -> dict:
         task = self._running.get(project_id)
@@ -183,6 +198,7 @@ class NovelPipelineRunner:
                     step.status = "completed"
                     step.error = ""
                     step.completed_at = _now_iso()
+                    self._post_step_hooks(project, step)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

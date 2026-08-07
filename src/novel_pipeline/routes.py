@@ -36,6 +36,7 @@ class CreateProjectRequest(BaseModel):
     name: str = Field(description="书名")
     premise: str = Field(default="", description="故事创意/前提")
     genre: str = Field(default="", description="类型，如：东方玄幻、都市异能")
+    rules: str = Field(default="", description="写作规则（注入章节写手与总大脑）")
     language: str = Field(default="中文")
     chapters: list[int] = Field(default_factory=lambda: [1, 2, 3], description="章节号列表")
     target_word_count: str = Field(default="3000-4000", description="每章目标字数")
@@ -66,6 +67,10 @@ class CreateTheaterRequest(BaseModel):
 
 class AddWorkflowRequest(BaseModel):
     workflow_id: str = Field(description="要加入本书管线的自定义工作流 ID")
+
+
+class UpdateRulesRequest(BaseModel):
+    rules: str = Field(default="", description="本书写作规则")
 
 
 def _scan_chapters(project: NovelProject) -> list[dict]:
@@ -120,6 +125,7 @@ async def create_project(body: CreateProjectRequest):
         human_intent=body.human_intent,
         world_intent=body.world_intent,
         writer_type=body.writer_type.strip() or "single",
+        rules=body.rules.strip(),
         workspace=str(ws),
     )
     project.steps = project.build_steps()
@@ -284,6 +290,30 @@ async def remove_extra_workflow(project_id: str, workflow_id: str):
     project.steps = project.build_steps()
     save_project(project)
     return {"success": True, "extra_workflow_ids": project.extra_workflow_ids}
+
+
+@router.post("/{project_id}/import-characters")
+async def import_pipeline_characters(project_id: str, request: Request):
+    """把流水线产出的角色（skeleton.json）归档进人物库并关联本书。"""
+    from .import_characters import import_characters
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    result = import_characters(project, force=False)
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("message", "归档失败"))
+    return {"project_id": project_id, **result}
+
+
+@router.post("/{project_id}/rules")
+async def update_book_rules(project_id: str, body: UpdateRulesRequest):
+    """保存本书写作规则（注入章节写手与总大脑）。"""
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    project.rules = body.rules.strip()
+    save_project(project)
+    return {"success": True, "rules": project.rules}
 
 
 @router.get("/{project_id}/chapters/{chapter}/text")
