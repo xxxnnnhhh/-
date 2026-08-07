@@ -64,6 +64,62 @@ async def assistant_chat(project_id: str, body: ChatRequest, request: Request):
     return {"project_id": project_id, **result}
 
 
+@router.post("/projects/{project_id}/main-session")
+async def get_or_create_main_session(project_id: str, request: Request):
+    """创建/复用本书的 Workflow Main 接管会话（助手页直接与 Main 对话）。"""
+    from .brain import build_context
+    project = _get_project(project_id)
+    sm = request.app.state.session_manager
+
+    # 复用已存在的 Main 会话
+    if project.main_session_id and project.main_session_id in getattr(sm, "sessions", {}):
+        return {
+            "success": True,
+            "session_id": project.main_session_id,
+            "reused": True,
+            "mode": "main_takeover",
+        }
+
+    mgr = request.app.state.workflow_manager
+    result = await mgr.pre_start_task(
+        workflow_id="bishu-novel-build",
+        workspace_override=project.workspace,
+        main_takeover=True,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("message", "创建 Main 会话失败"))
+    sid = result.get("session_id", "")
+    if not sid:
+        raise HTTPException(status_code=500, detail="Main 会话创建失败：无 session_id")
+    project.main_session_id = sid
+    save_project(project)
+
+    # 注入书级上下文（世界观/角色/大纲/章节/演绎/Skills），让 Main 知道整本书
+    session = sm.sessions.get(sid)
+    if session is not None:
+        try:
+            ctx = build_context(project)
+            extra = (
+                "\n\n==== 本书上下文（总大脑视图）====\n" + ctx
+                + "\n\n你是这本书的总大脑。可以回答关于书的问题，并用 list_workflows / get_workflow / "
+                  "create_and_attach_task / set_workflow_variable / start_workflow_task / approve_node / "
+                  "update_workflow_node 等工具创建、启动、审批、修改工作流。所有写入操作先向用户说明。"
+            )
+            session.system_prompt = (session.system_prompt or "") + extra
+            if hasattr(session, "async_save"):
+                await session.async_save(force=True)
+        except Exception:
+            logger.exception("注入书级上下文到 Main 会话失败（不影响会话）")
+
+    return {
+        "success": True,
+        "session_id": sid,
+        "task_id": result.get("task_id", ""),
+        "reused": False,
+        "mode": "main_takeover",
+    }
+
+
 @router.post("/projects/{project_id}/actions/confirm")
 async def confirm_action(project_id: str, body: ConfirmActionRequest, request: Request):
     """确认并执行助手提案的动作。"""

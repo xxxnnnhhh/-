@@ -670,6 +670,13 @@ def apply_workflow_node_update(manager, arguments: dict) -> dict:
         old_value = params.get(node_params_key)
         params[node_params_key] = new_value
     else:
+        # 关键文本字段禁止清空，防止破坏工作流
+        if field in ("first_message", "system_prompt_template", "label"):
+            if new_value is None or not str(new_value).strip():
+                return {
+                    "success": False,
+                    "message": f"{field} 不能为空（清空会破坏工作流，已拒绝）",
+                }
         target[field] = new_value
 
     validation = manager.validate_workflow(definition)

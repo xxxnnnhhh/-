@@ -185,6 +185,10 @@ export default function BookShelfPage() {
   const [models, setModels] = useState<{ value: string; label: string }[]>([]);
   const [wfPickerOpen, setWfPickerOpen] = useState(false);
   const [allWorkflows, setAllWorkflows] = useState<{ workflow_id: string; name: string; node_count: number }[]>([]);
+  const [mainSessionId, setMainSessionId] = useState<string | null>(null);
+  const [mainMsgs, setMainMsgs] = useState<{ role: string; content: string }[]>([]);
+  const [mainInput, setMainInput] = useState("");
+  const [mainBusy, setMainBusy] = useState(false);
   const lastDiagRef = useRef("");
   const lastStatusRef = useRef("");
 
@@ -235,12 +239,58 @@ export default function BookShelfPage() {
       fetchContent(selectedId);
       setAsstMsgs([]);
       setPendingActions([]);
+      setMainSessionId(null);
+      setMainMsgs([]);
       lastDiagRef.current = "";
       lastStatusRef.current = "";
     } else {
       setContent(null);
     }
   }, [selectedId, fetchContent]);
+
+  // 进入「助手」分页：自动接入 Workflow Main 接管
+  useEffect(() => {
+    if (tab !== "assistant" || !selected || mainSessionId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/assistant/projects/${selected.project_id}/main-session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "创建 Main 会话失败");
+        setMainSessionId(data.session_id);
+        setMainMsgs([{ role: "assistant", content: "🧠 已连接 Workflow Main（Main 接管）。我是这本书的总大脑：可以回答书的问题、填写工作流参数、创建/启动任务、审批节点、修改工作流节点——动手前会先向你说明。" }]);
+      } catch (e) {
+        setMainMsgs([{ role: "assistant", content: `（Main 接管会话创建失败：${e instanceof Error ? e.message : "未知错误"}。仍可使用内置助手）` }]);
+      }
+    })();
+  }, [tab, selected, mainSessionId]);
+
+  const sendMainChat = async () => {
+    if (!selected || !mainSessionId || !mainInput.trim() || mainBusy) return;
+    const text = mainInput.trim();
+    setMainInput("");
+    setMainMsgs((prev) => [...prev, { role: "user", content: text }]);
+    setMainBusy(true);
+    try {
+      const res = await fetch(`/api/sessions/${mainSessionId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "发送失败");
+      setMainMsgs((prev) => [...prev, { role: "assistant", content: data.reply || data.message || "（Main 无回复）" }]);
+      await fetchProjects();
+      if (selectedId) fetchContent(selectedId);
+    } catch (e) {
+      setMainMsgs((prev) => [...prev, { role: "assistant", content: `（发送失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
+    } finally {
+      setMainBusy(false);
+    }
+  };
 
   // 流水线失败 → 自动诊断 + 修复建议（每个失败签名只诊断一次）
   useEffect(() => {
@@ -706,6 +756,63 @@ export default function BookShelfPage() {
     const mountedSkills = content?.project.skill_ids || [];
     const enabled = content?.project.assistant_enabled !== false;
     const model = content?.project.assistant_model || "";
+    if (mainSessionId) {
+      return (
+        <div className="flex flex-col h-full min-h-0">
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+            <span className="font-medium">🧠 Workflow Main 已接管</span>
+            <span className="text-emerald-400/70">会话 {mainSessionId.slice(0, 8)}… · 可填参/建任务/启动/审批/改工作流节点</span>
+          </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500">写作风格：</span>
+            {mountedSkills.length === 0 ? (
+              <span className="text-xs text-slate-600">（未挂载）</span>
+            ) : mountedSkills.map((sid) => (
+              <span key={sid} className="rounded bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 text-xs text-pink-300">{sid}</span>
+            ))}
+            <button type="button" onClick={openSkillPicker} className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800">
+              ✨ 管理风格
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-white/5 bg-slate-900/40 p-4 space-y-3">
+            {mainMsgs.length === 0 && (
+              <div className="text-sm text-slate-500">正在连接 Workflow Main…</div>
+            )}
+            {mainMsgs.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
+                  m.role === "user" ? "bg-amber-600/20 text-slate-100" : "bg-slate-800/80 text-slate-200"
+                }`}>{m.content}</div>
+              </div>
+            ))}
+            {mainBusy && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-2 rounded-lg bg-slate-800/80 px-3 py-2 text-sm text-slate-400">
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" /> Main 正在思考/执行…
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              className="flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
+              value={mainInput}
+              onChange={(e) => setMainInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMainChat()}
+              placeholder="问书的状态 / 串起来跑 / 填参数 / 启动工作流 / 改节点…"
+            />
+            <button
+              type="button"
+              disabled={mainBusy || !mainInput.trim()}
+              onClick={sendMainChat}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm text-white disabled:opacity-50"
+            >
+              发送
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col h-full min-h-0">
         {/* 总大脑设置：AI 开关 + 模型 */}
