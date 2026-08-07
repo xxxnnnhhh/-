@@ -67,7 +67,7 @@ async def assistant_chat(project_id: str, body: ChatRequest, request: Request):
 @router.post("/projects/{project_id}/main-session")
 async def get_or_create_main_session(project_id: str, request: Request):
     """创建/复用本书的 Workflow Main 接管会话（助手页直接与 Main 对话）。"""
-    from .brain import build_context
+    from .brain import build_context, build_main_skill_section
     project = _get_project(project_id)
     sm = request.app.state.session_manager
 
@@ -101,8 +101,10 @@ async def get_or_create_main_session(project_id: str, request: Request):
             # 记录书 project_id，供 Main 的 run_book_pipeline 工具使用
             session.book_project_id = project.project_id
             ctx = build_context(project)
+            skill_section = build_main_skill_section()
             extra = (
-                "\n\n==== 本书设定（已就绪，必须直接使用，禁止反问用户主题）====\n" + ctx
+                skill_section
+                + "\n\n==== 本书设定（已就绪，必须直接使用，禁止反问用户主题）====\n" + ctx
                 + "\n\n你是《" + project.name + "》这本书的总大脑。本书设定（创意/规则/世界观/角色/大纲）已全部就绪，"
                   "用户要求生成内容时直接使用这些设定，不要反问主题。"
                   "\n\n你的核心能力：用户说「串起来跑 / 生成正文 / 跑流水线」时，调用 run_book_pipeline 工具"

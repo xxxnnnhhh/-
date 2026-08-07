@@ -353,6 +353,27 @@ def build_context(project) -> str:
     return "\n".join(ctx).strip()
 
 
+def build_main_skill_section() -> str:
+    """加载 bishu-novel-writing-assistant 技能（SKILL.md + references），
+    教 Main 按原版协议运行写作工作流。"""
+    # 该技能由 bishu-novel 插件提供（skill-bundles），从插件资源读取
+    skill_dir = (
+        Path(r"E:\DeterminFlowData\plugins\runtime-resources\bishu-novel\skill-bundles\0")
+        / "bishu-novel-writing-assistant"
+    )
+    parts: list[str] = []
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.is_file():
+        parts.append(skill_md.read_text(encoding="utf-8"))
+    for ref in ("workflows.md", "workspace.md"):
+        p = skill_dir / "references" / ref
+        if p.is_file():
+            parts.append(p.read_text(encoding="utf-8"))
+    if not parts:
+        return ""
+    return "\n\n==== 运行协议（必须遵守）====\n" + "\n\n".join(parts)
+
+
 def _parse_assistant_output(text: str) -> dict:
     """从 LLM 输出解析 {reply, action}，兼容 markdown 代码块包裹。"""
     cleaned = text.strip()
