@@ -764,6 +764,92 @@ def create_run_book_pipeline_tool(
     )
 
 
+
+
+class BookProjectToolsArgs(BaseModel):
+    """书级工具参数。"""
+    operation: str = Field(default="", description="要执行的操作：project_update / project_move / chapter_body_update")
+    fields: dict | None = Field(default=None, description="project_update：要更新的书设定字段，如 premise/genre/rules/chapters/assistant_model 等")
+    archive_root: str | None = Field(default=None, description="project_move：新的存档根目录")
+    new_workspace: str | None = Field(default=None, description="project_move：新的工作区绝对路径（仅空闲时允许）")
+    chapter_number: str | None = Field(default=None, description="chapter_body_update：章节号（1-6位数字）")
+    body: str | None = Field(default=None, description="chapter_body_update：完整章节正文")
+    reason: str | None = Field(default="", description="chapter_body_update：修改原因")
+
+
+def _load_book_project(session_manager) -> tuple:
+    """从 Main 会话取书 project_id 并加载项目。返回 (project, error)。"""
+    ctx = get_session_context()
+    session_id = ctx.get("session_id", "")
+    session = (session_manager.sessions or {}).get(session_id) if session_id else None
+    project_id = getattr(session, "book_project_id", "") if session else ""
+    if not project_id:
+        return None, "当前 Main 未绑定任何书（缺少 book_project_id）"
+    from src.novel_pipeline.models import load_project
+    project = load_project(project_id)
+    if project is None:
+        return None, f"小说项目不存在: {project_id}"
+    return project, None
+
+
+def create_book_project_tools_tool(
+    workflow_manager: "WorkflowManager",
+    session_manager: "SessionManager",
+) -> StructuredTool:
+    """创建书级工具：project_update / project_move / chapter_body_update。"""
+
+    async def _book_tool(
+        operation: str = "",
+        fields: dict | None = None,
+        archive_root: str | None = None,
+        new_workspace: str | None = None,
+        chapter_number: str | None = None,
+        body: str | None = None,
+        reason: str = "",
+    ) -> str:
+        project, err = _load_book_project(session_manager)
+        if err:
+            return _fail(err)
+        try:
+            if operation == "project_update":
+                from src.assistant.brain import apply_project_update
+                result = apply_project_update(project, fields or {})
+            elif operation == "project_move":
+                from src.assistant.brain import apply_project_move
+                args = {}
+                if archive_root: args["archive_root"] = archive_root
+                if new_workspace: args["new_workspace"] = new_workspace
+                runner = getattr(session_manager, "novel_pipeline_runner", None)
+                is_running = runner.is_running(project.project_id) if runner else False
+                result = apply_project_move(project, args, is_running=is_running)
+            elif operation == "chapter_body_update":
+                from src.assistant.brain import execute_chapter_body_update
+                result = execute_chapter_body_update(project, {
+                    "chapter_number": chapter_number or "1",
+                    "body": body or "",
+                    "reason": reason,
+                })
+            else:
+                return _fail("operation 必须是 project_update / project_move / chapter_body_update")
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("书级工具执行失败")
+            return _fail(f"执行失败: {e}")
+
+    return StructuredTool(
+        name="book_project",
+        description=(
+            "书级操作（需当前 Main 已绑定书）：project_update 更新书设定（fields：premise/genre/rules/chapters/"
+            "human_intent/world_intent/assistant_model/archive_root 等）；project_move 改存档目录 archive_root "
+            "或整体移动工作区 new_workspace（仅空闲时）；chapter_body_update 写入/重写章节正文（先自动备份历史版本）。"
+            "用 operation 指定要执行哪一种。"
+        ),
+        args_schema=BookProjectToolsArgs,
+        func=lambda **kw: None,
+        coroutine=_book_tool,
+    )
+
+
 def create_get_workflow_tool(
     workflow_manager: "WorkflowManager",
 ) -> StructuredTool:

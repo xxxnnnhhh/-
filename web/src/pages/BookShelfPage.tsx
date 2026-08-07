@@ -191,6 +191,7 @@ export default function BookShelfPage() {
   const [mainMsgs, setMainMsgs] = useState<{ role: string; content: string }[]>([]);
   const [mainInput, setMainInput] = useState("");
   const [mainBusy, setMainBusy] = useState(false);
+  const [mainTaskId, setMainTaskId] = useState("");
   const [charEdit, setCharEdit] = useState<{ id: string; ratio: { id: string; ego: string; superego: string } } | null>(null);
   const [rulesDraft, setRulesDraft] = useState("");
   const [precheckReport, setPrecheckReport] = useState<{ ok: boolean; message: string; steps: { key: string; label: string; status: string; missing: string[] }[]; materialized: string[] } | null>(null);
@@ -273,6 +274,7 @@ export default function BookShelfPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "创建 Main 会话失败");
         setMainSessionId(data.session_id);
+        setMainTaskId(data.task_id || "");
         // 加载历史消息（退出再进/刷新后也能看到之前的对话）
         let history: { role: string; content: string }[] = [];
         try {
@@ -888,6 +890,13 @@ export default function BookShelfPage() {
           <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
             <span className="font-medium">🧠 Workflow Main 已接管</span>
             <span className="text-emerald-400/70">会话 {mainSessionId.slice(0, 8)}… · 可填参/建任务/启动/审批/改工作流节点</span>
+            <button
+              type="button"
+              onClick={() => openWorkflow("bishu-novel-build", mainTaskId || undefined)}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-emerald-500/30 px-2 py-1 text-emerald-300 hover:bg-emerald-500/10"
+            >
+              <ExternalLink size={12} aria-hidden="true" /> 打开工作流页（Main 视图）
+            </button>
           </div>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500">写作风格：</span>

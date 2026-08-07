@@ -650,6 +650,7 @@ def register_all_tool_factories(registry: ToolRegistry, *,
         create_get_workflow_tool,
         create_update_workflow_node_tool,
         create_run_book_pipeline_tool,
+        create_book_project_tools_tool,
         create_create_and_attach_task_tool,
         create_list_tasks_tool,
         create_get_task_status_tool,
@@ -701,10 +702,11 @@ def register_all_tool_factories(registry: ToolRegistry, *,
         create_get_workflow_tool,
         create_update_workflow_node_tool,
         create_run_book_pipeline_tool,
+        create_book_project_tools_tool,
     ]
     for creator in query_tool_creators:
         # run_book_pipeline 需要 session_manager
-        if creator is create_run_book_pipeline_tool:
+        if creator in (create_run_book_pipeline_tool, create_book_project_tools_tool):
             tool_instance = creator(wf_mgr, sm)
             registry.register_from_structured_tool(
                 tool_instance,
