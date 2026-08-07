@@ -316,6 +316,22 @@ async def update_book_rules(project_id: str, body: UpdateRulesRequest):
     return {"success": True, "rules": project.rules}
 
 
+@router.post("/{project_id}/precheck")
+async def precheck_pipeline(project_id: str, request: Request):
+    """预检：把书设定落位到正确路径，并按步骤检测前置文件是否就位。"""
+    from .preflight import precheck, materialize_inputs
+    project = load_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="小说项目不存在")
+    materialized = materialize_inputs(project)
+    check = precheck(project)
+    return {
+        "project_id": project_id,
+        **check,
+        "materialized": materialized["written"],
+    }
+
+
 @router.get("/{project_id}/chapters/{chapter}/text")
 async def get_chapter_text(project_id: str, chapter: str):
     """读取某一章的正文（chapter.md）。"""

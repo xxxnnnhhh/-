@@ -105,6 +105,16 @@ def plan_pipeline(project) -> str:
         lines.append("前置检查：通过，所需基础文件齐备。")
     if project.rules.strip():
         lines.append("已读取本书写作规则：" + project.rules.strip().replace("\n", " / ")[:200])
+    # 预检：设定落位 + 逐步骤前置文件
+    try:
+        from ..novel_pipeline.preflight import precheck
+        check = precheck(project)
+        lines.append("预检：" + check["message"])
+        for s in check["steps"]:
+            if s["missing"]:
+                lines.append(f"  - {s['label']} 缺前置：{'、'.join(s['missing'])}")
+    except Exception:
+        logger.exception("预检失败（不影响计划）")
     return "\n".join(lines)
 
 

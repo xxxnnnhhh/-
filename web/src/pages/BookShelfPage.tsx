@@ -193,6 +193,7 @@ export default function BookShelfPage() {
   const [mainBusy, setMainBusy] = useState(false);
   const [charEdit, setCharEdit] = useState<{ id: string; ratio: { id: string; ego: string; superego: string } } | null>(null);
   const [rulesDraft, setRulesDraft] = useState("");
+  const [precheckReport, setPrecheckReport] = useState<{ ok: boolean; message: string; steps: { key: string; label: string; status: string; missing: string[] }[]; materialized: string[] } | null>(null);
   const lastDiagRef = useRef("");
   const lastStatusRef = useRef("");
 
@@ -245,6 +246,7 @@ export default function BookShelfPage() {
       setPendingActions([]);
       setMainSessionId(null);
       setMainMsgs([]);
+      setPrecheckReport(null);
       lastDiagRef.current = "";
       lastStatusRef.current = "";
     } else {
@@ -622,6 +624,19 @@ export default function BookShelfPage() {
       showMsg(`已归档 ${data.imported?.length || 0} 个角色到人物库`);
     } catch (e) {
       showMsg(e instanceof Error ? e.message : "归档失败");
+    }
+  };
+
+  const runPrecheck = async () => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/novel/pipelines/${selected.project_id}/precheck`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "预检失败");
+      setPrecheckReport(data);
+      showMsg(data.ok ? "✅ 设定已落位，前置文件就位，可运行" : `❌ ${data.message}`);
+    } catch (e) {
+      showMsg(e instanceof Error ? e.message : "预检失败");
     }
   };
 
@@ -1536,7 +1551,33 @@ export default function BookShelfPage() {
           >
             <FolderOpen size={15} aria-hidden="true" /> 项目文件
           </button>
+          <button
+            type="button"
+            onClick={runPrecheck}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 px-3 py-2 text-sm transition-colors"
+          >
+            🔍 检测前置（设定落位）
+          </button>
         </div>
+        {precheckReport && (
+          <div className={`rounded-lg border p-4 ${precheckReport.ok ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+            <div className={`text-sm font-medium ${precheckReport.ok ? "text-emerald-300" : "text-amber-300"}`}>
+              {precheckReport.ok ? "✅ 预检通过" : "❌ 预检未通过"}：{precheckReport.message}
+            </div>
+            {precheckReport.materialized && precheckReport.materialized.length > 0 && (
+              <div className="mt-1 text-xs text-slate-500">已写入路径：{precheckReport.materialized.join("、")}</div>
+            )}
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1.5">
+              {precheckReport.steps.map((s) => (
+                <div key={s.key} className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${s.missing.length ? "bg-red-500/10 text-red-300" : "bg-white/5 text-slate-400"}`}>
+                  <span>{s.status === "缺前置" ? "✕" : s.status === "已运行" ? "✓" : "○"}</span>
+                  <span className="flex-1">{s.label}</span>
+                  {s.missing.length > 0 && <span className="text-red-300">缺：{s.missing.join("、")}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {selected.error && (
           <p className="text-sm text-red-400">错误：{selected.error}</p>
         )}

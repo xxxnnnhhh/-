@@ -53,6 +53,11 @@ class NovelPipelineRunner:
             project.steps = project.build_steps()
         elif not project.steps:
             project.steps = project.build_steps()
+        # 先检测：设定落位 + 前置文件就位检查（不通过不启动）
+        from .preflight import precheck
+        check = precheck(project)
+        if not check["ok"]:
+            return {"success": False, "message": "预检未通过：" + check["message"]}
         # 失败/停止过的步骤允许从断点继续，已完成的保留
         for step in project.steps:
             if step.status in {"failed", "stopped"}:
@@ -80,6 +85,19 @@ class NovelPipelineRunner:
         step = next((s for s in project.steps if s.key == step_key), None)
         if step is None:
             return {"success": False, "message": f"未知步骤: {step_key}"}
+        # 先检测该步骤的前置文件（设定已自动落位）
+        from .preflight import precheck
+        check = precheck(project)
+        step_report = next((s for s in check["steps"] if s["key"] == step_key), None)
+        if step_report and step_report["missing"]:
+            return {
+                "success": False,
+                "message": (
+                    f"步骤「{step.label}」缺前置文件："
+                    + "、".join(step_report["missing"])
+                    + " —— 请先完成对应上游步骤"
+                ),
+            }
         step.status = "pending"
         step.task_id = ""
         step.error = ""
