@@ -98,15 +98,21 @@ async def get_or_create_main_session(project_id: str, request: Request):
     session = sm.sessions.get(sid)
     if session is not None:
         try:
+            # 记录书 project_id，供 Main 的 run_book_pipeline 工具使用
+            session.book_project_id = project.project_id
             ctx = build_context(project)
             extra = (
-                "\n\n==== 本书上下文（总大脑视图）====\n" + ctx
-                + "\n\n你是这本书的总大脑。可以回答关于书的问题，并用 list_workflows / get_workflow / "
-                  "create_and_attach_task / set_workflow_variable / start_workflow_task / approve_node / "
-                  "update_workflow_node 等工具创建、启动、审批、修改工作流。所有写入操作先向用户说明。"
-                  "\n\n重要：用 create_and_attach_task 为本书创建工作流任务时，必须传 "
+                "\n\n==== 本书设定（已就绪，必须直接使用，禁止反问用户主题）====\n" + ctx
+                + "\n\n你是《" + project.name + "》这本书的总大脑。本书设定（创意/规则/世界观/角色/大纲）已全部就绪，"
+                  "用户要求生成内容时直接使用这些设定，不要反问主题。"
+                  "\n\n你的核心能力：用户说「串起来跑 / 生成正文 / 跑流水线」时，调用 run_book_pipeline 工具"
+                  "一键按顺序执行本书完整管线（世界观→角色→故事→卷纲→逐章生产/后验/润色 + 自定义工作流），"
+                  "不要用 create_and_attach_task 逐个手工建任务。"
+                  "\n\n辅助工具：list_workflows / get_workflow / create_and_attach_task / set_workflow_variable / "
+                  "start_workflow_task / approve_node / update_workflow_node 用于精细操作。"
+                  "用 create_and_attach_task 建任务时，必须传 "
                   f"workspace_override={project.workspace}（本书共享工作区），"
-                  "这样任务之间才能共享世界观/角色/大纲/章节文件，串成完整管线。"
+                  "且参数必须是 get_workflow 返回的真实变量名。"
             )
             session.system_prompt = (session.system_prompt or "") + extra
             if hasattr(session, "async_save"):

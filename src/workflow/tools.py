@@ -722,6 +722,48 @@ def create_list_workflows_tool(
     )
 
 
+
+class RunBookPipelineArgs(BaseModel):
+    """run_book_pipeline 参数。"""
+    reset: bool = Field(default=False, description="True=清空步骤从零重跑；False=从断点继续")
+
+
+def create_run_book_pipeline_tool(
+    workflow_manager: "WorkflowManager",
+    session_manager: "SessionManager",
+) -> StructuredTool:
+    """创建 run_book_pipeline 工具 — 一键按本书流水线顺序串联所有工作流。"""
+
+    async def _run_book_pipeline(reset: bool = False) -> str:
+        ctx = get_session_context()
+        session_id = ctx.get("session_id", "")
+        session = (session_manager.sessions or {}).get(session_id) if session_id else None
+        project_id = getattr(session, "book_project_id", "") if session else ""
+        if not project_id:
+            return _fail("当前 Main 未绑定任何书（缺少 book_project_id）")
+        from src.novel_pipeline.models import load_project
+        project = load_project(project_id)
+        if project is None:
+            return _fail(f"小说项目不存在: {project_id}")
+        runner = getattr(session_manager, "novel_pipeline_runner", None)
+        if runner is None:
+            return _fail("小说管线运行器未初始化")
+        result = runner.start(project, reset=reset)
+        return json.dumps(result, ensure_ascii=False)
+
+    return StructuredTool(
+        name="run_book_pipeline",
+        description=(
+            "一键按本书流水线顺序串联执行所有工作流（世界观构建→角色创建→故事规划→卷纲近纲→"
+            "逐章生产/后验/润色，含用户自定义工作流）。用户说「串起来跑/生成正文/跑流水线」时调用它，"
+            "不要手工逐个建任务。reset=true 从头重跑，false 从断点继续。"
+        ),
+        args_schema=RunBookPipelineArgs,
+        func=lambda **kw: None,
+        coroutine=_run_book_pipeline,
+    )
+
+
 def create_get_workflow_tool(
     workflow_manager: "WorkflowManager",
 ) -> StructuredTool:

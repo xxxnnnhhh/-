@@ -264,6 +264,8 @@ async def lifespan(app: FastAPI):
         # 初始化小说管线运行器（连跑 7 个笔枢写作工作流）
         from src.novel_pipeline.runner import NovelPipelineRunner
         novel_pipeline_runner = NovelPipelineRunner(workflow_mgr)
+        # 供 Main 工具的 run_book_pipeline 使用（同一实例，状态共享）
+        session_mgr.novel_pipeline_runner = novel_pipeline_runner
         logger.info("NovelPipelineRunner 已初始化")
 
         # 初始化 ToolRegistry 并统一注册所有工具工厂

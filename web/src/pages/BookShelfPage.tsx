@@ -303,18 +303,50 @@ export default function BookShelfPage() {
     setMainMsgs((prev) => [...prev, { role: "user", content: text }]);
     setMainBusy(true);
     try {
-      const res = await fetch(`/api/sessions/${mainSessionId}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "发送失败");
-      setMainMsgs((prev) => [...prev, { role: "assistant", content: data.reply || data.message || "（Main 无回复）" }]);
+      // 发送前记录会话里已有的助手消息数
+      let before = 0;
+      try {
+        const hr = await fetch(`/api/sessions/${mainSessionId}`);
+        const hd = await hr.json();
+        before = (hd.messages || []).filter((m: { type?: string; content?: string }) => m.type === "assistant" && String(m.content || "").trim()).length;
+      } catch { /* ignore */ }
+      // 发送（容忍超时：Main 执行工具链可能较久，服务端会继续处理，我们转轮询）
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        await fetch(`/api/sessions/${mainSessionId}/message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+      } catch { /* 超时/断连不致命：Main 仍在处理，轮询拿结果 */ }
+      // 轮询直到新回复出现（最多 120 秒）
+      const started = Date.now();
+      let got = false;
+      while (Date.now() - started < 120000) {
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          const res = await fetch(`/api/sessions/${mainSessionId}`);
+          const data = await res.json();
+          const asst = (data.messages || [])
+            .filter((m: { type?: string; content?: string }) => m.type === "assistant" && String(m.content || "").trim())
+            .map((m: { content?: string }) => String(m.content || "").trim());
+          if (asst.length > before) {
+            setMainMsgs((prev) => [...prev, { role: "assistant", content: asst[asst.length - 1] }]);
+            got = true;
+            break;
+          }
+        } catch { /* 继续轮询 */ }
+      }
+      if (!got) {
+        setMainMsgs((prev) => [...prev, { role: "assistant", content: "（Main 正在处理中，稍后刷新可查看结果）" }]);
+      }
       await fetchProjects();
       if (selectedId) fetchContent(selectedId);
-    } catch (e) {
-      setMainMsgs((prev) => [...prev, { role: "assistant", content: `（发送失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
+    } catch {
+      setMainMsgs((prev) => [...prev, { role: "assistant", content: "（发送失败，请重试）" }]);
     } finally {
       setMainBusy(false);
     }
