@@ -1289,13 +1289,29 @@ export default function BookShelfPage() {
               <div className="mt-1 text-xs text-slate-500">已写入路径：{precheckReport.materialized.join("、")}</div>
             )}
             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1.5">
-              {precheckReport.steps.map((s) => (
-                <div key={s.key} className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${s.missing.length ? "bg-red-500/10 text-red-300" : "bg-white/5 text-slate-400"}`}>
-                  <span>{s.status === "缺前置" ? "✕" : s.status === "已运行" ? "✓" : "○"}</span>
-                  <span className="flex-1">{s.label}</span>
-                  {s.missing.length > 0 && <span className="text-red-300">缺：{s.missing.join("、")}</span>}
-                </div>
-              ))}
+              {precheckReport.steps.map((s) => {
+                const tone =
+                  s.status === "缺前置" ? "bg-red-500/10 text-red-300"
+                  : s.status === "就绪" ? "bg-amber-500/10 text-amber-300"
+                  : s.status === "已运行" ? "bg-emerald-500/10 text-emerald-300"
+                  : "bg-white/5 text-slate-500";
+                const mark =
+                  s.status === "缺前置" ? "✕"
+                  : s.status === "已运行" ? "✓"
+                  : s.status === "就绪" ? "▶"
+                  : "○";
+                return (
+                  <div key={s.key} className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${tone}`}>
+                    <span>{mark}</span>
+                    <span className="flex-1">{s.label}</span>
+                    {s.status === "就绪" && <span className="text-amber-300">下一步</span>}
+                    {s.status === "待前序" && <span className="text-slate-500">等前序生成</span>}
+                    {s.status === "缺前置" && s.missing.length > 0 && (
+                      <span className="text-red-300">缺：{s.missing.join("、")}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

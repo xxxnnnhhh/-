@@ -98,11 +98,18 @@ def materialize_inputs(project: "NovelProject") -> dict:
 
 
 def precheck(project: "NovelProject") -> dict:
-    """预检：按顺序检测每步前置文件，返回报告（不执行）。"""
+    """预检：按顺序检测每步前置文件，返回报告（不执行）。
+
+    顺序流水线里，后一步的文件本来就由前一步生成——所以只有"第一个未完成步骤"
+    真正决定能否继续：它的前置齐了就绪，缺了就阻塞；更后面的步骤一律显示
+    "待前序"（由前面的步骤自动生成），不再当错误一屏列红。
+    """
     materialize_inputs(project)
     ws = Path(project.workspace)
     report: list[dict] = []
     blocking: list[str] = []
+    next_step: dict | None = None
+    first_incomplete_seen = False
     for step in project.steps:
         reqs = _requirements(step)
         missing = [
@@ -110,21 +117,25 @@ def precheck(project: "NovelProject") -> dict:
             if not (ws / r).is_file()
         ]
         if step.status == "completed":
-            status = "已运行"
-        elif missing:
-            status = "缺前置"
             report.append({
                 "key": step.key,
                 "label": step.label,
-                "status": status,
-                "missing": missing,
+                "status": "已运行",
+                "missing": [],
             })
-            # 若这是第一个可运行（未完成）的步骤，属于阻塞
-            if not any(x.get("status") == "缺前置" for x in report[:-1]):
-                blocking = missing
             continue
+        if not first_incomplete_seen:
+            first_incomplete_seen = True
+            next_step = {"key": step.key, "label": step.label}
+            if missing:
+                blocking = missing
+                status = "缺前置"
+            else:
+                status = "就绪"
         else:
-            status = "就绪"
+            # 后续步骤：缺的文件由前面的步骤生成，属等待，不算错误
+            status = "待前序"
+            missing = []
         report.append({
             "key": step.key,
             "label": step.label,
@@ -132,12 +143,19 @@ def precheck(project: "NovelProject") -> dict:
             "missing": [],
         })
     ok = not blocking
+    if ok and next_step is not None:
+        message = f"前置就绪，下一步：{next_step['label']} —— 可直接「继续连跑」"
+    elif ok:
+        message = "所有步骤已完成"
+    else:
+        message = (
+            f"卡在「{next_step['label']}」：缺 {', '.join(blocking)}"
+            " —— 先完成该步骤（或从它开始跑）"
+        )
     return {
         "ok": ok,
         "blocking": blocking,
+        "next_step": next_step,
         "steps": report,
-        "message": (
-            "所有前置文件就位，可运行" if ok
-            else f"缺少前置文件：{', '.join(blocking)} —— 先完成对应步骤再运行"
-        ),
+        "message": message,
     }
