@@ -44,6 +44,36 @@
       "priority": 50,
       "auto_inject": true,
       "workflow_only": false
+    },
+    "novel-rule-chapter-hook": {
+      "enabled": true,
+      "priority": 50,
+      "auto_inject": false,
+      "workflow_only": false
+    },
+    "novel-style-ancient": {
+      "enabled": true,
+      "priority": 50,
+      "auto_inject": false,
+      "workflow_only": false
+    },
+    "novel-style-restrained": {
+      "enabled": true,
+      "priority": 50,
+      "auto_inject": false,
+      "workflow_only": false
+    },
+    "novel-style-strong-conflict": {
+      "enabled": true,
+      "priority": 50,
+      "auto_inject": false,
+      "workflow_only": false
+    },
+    "novel-style-emotion-driven": {
+      "enabled": true,
+      "priority": 50,
+      "auto_inject": false,
+      "workflow_only": false
     }
   },
   "skills": {
@@ -82,7 +112,12 @@
         "default"
       ],
       "auto_inject": true
-    }
+    },
+    "novel-rule-chapter-hook": {},
+    "novel-style-ancient": {},
+    "novel-style-restrained": {},
+    "novel-style-strong-conflict": {},
+    "novel-style-emotion-driven": {}
   },
-  "last_updated": "2026-08-05T13:15:40.013468+00:00"
+  "last_updated": "2026-08-07T05:05:56.879276+00:00"
 }

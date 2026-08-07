@@ -9,7 +9,7 @@
         "*"
       ],
       "disallowed_tools": null,
-      "model": "deepseek:deepseek-v4-flash",
+      "model": "zhipu:glm-4-flash",
       "max_turns": 100,
       "system_prompt_template": "",
       "copy_main_workspace": null,
@@ -165,5 +165,5 @@
       }
     }
   },
-  "last_updated": "2026-08-05T10:18:55.259367+00:00"
+  "last_updated": "2026-08-06T06:32:40.631462+00:00"
 }

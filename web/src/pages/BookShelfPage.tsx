@@ -9,7 +9,6 @@ import {
   FolderOpen, FileText, ArrowLeft, Loader2, Trash2, CheckCircle2,
   XCircle, Circle, ExternalLink, Sparkles, UserPlus, Theater, BookMarked,
   Globe2, ListTree, Workflow as WorkflowIcon, LayoutGrid, Users, Brain,
-  Send, Check, X, Wand2,
 } from "lucide-react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -126,17 +125,6 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
   failed: { label: "失败", cls: "text-red-400" },
 };
 
-const ACTION_LABELS: Record<string, string> = {
-  chapter_body_update: "写入章节正文",
-  run_step: "运行流水线步骤",
-  workflow_run: "运行工作流",
-  run_pipeline: "连跑整条流水线",
-  workflow_update_node: "修改工作流节点",
-  describe_workflows: "描述工作流",
-  project_update: "更新书设定",
-  project_move: "修改保存路径",
-};
-
 const WORKFLOW_LINKS: { id: string; label: string; desc: string }[] = [
   { id: "bishu-novel-build", label: "世界观构建", desc: "六维世界规则 → world_foundation.md" },
   { id: "bishu-novel-character", label: "角色创建", desc: "骨架/信念/深层/声线 → 角色档案" },
@@ -177,14 +165,9 @@ export default function BookShelfPage() {
   const [filesOpen, setFilesOpen] = useState(false);
   const [files, setFiles] = useState<{ path: string; size: number }[]>([]);
   // 助手（总大脑）状态
-  const [asstMsgs, setAsstMsgs] = useState<{ role: string; content: string }[]>([]);
-  const [asstInput, setAsstInput] = useState("");
-  const [asstBusy, setAsstBusy] = useState(false);
-  const [pendingActions, setPendingActions] = useState<{ operation: string; arguments: Record<string, unknown>; reply: string }[]>([]);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [availableSkills, setAvailableSkills] = useState<{ id: string; name: string; description: string; tags: string[] }[]>([]);
   const [skillDraft, setSkillDraft] = useState<string[]>([]);
-  const [models, setModels] = useState<{ value: string; label: string }[]>([]);
   const [wfPickerOpen, setWfPickerOpen] = useState(false);
   const [allWorkflows, setAllWorkflows] = useState<{ workflow_id: string; name: string; node_count: number }[]>([]);
   const [mainSessionId, setMainSessionId] = useState<string | null>(null);
@@ -192,10 +175,10 @@ export default function BookShelfPage() {
   const [mainInput, setMainInput] = useState("");
   const [mainBusy, setMainBusy] = useState(false);
   const [mainTaskId, setMainTaskId] = useState("");
+  const [mainRetry, setMainRetry] = useState(0);
   const [charEdit, setCharEdit] = useState<{ id: string; ratio: { id: string; ego: string; superego: string } } | null>(null);
   const [rulesDraft, setRulesDraft] = useState("");
   const [precheckReport, setPrecheckReport] = useState<{ ok: boolean; message: string; steps: { key: string; label: string; status: string; missing: string[] }[]; materialized: string[] } | null>(null);
-  const lastDiagRef = useRef("");
   const lastStatusRef = useRef("");
 
   const selected = useMemo(
@@ -233,22 +216,12 @@ export default function BookShelfPage() {
   }, [fetchProjects]);
 
   useEffect(() => {
-    fetch("/api/models/all")
-      .then((r) => r.json())
-      .then((d) => setModels(d.models || []))
-      .catch(() => { /* ignore */ });
-  }, []);
-
-  useEffect(() => {
     if (selectedId) {
       setContent(null);
       fetchContent(selectedId);
-      setAsstMsgs([]);
-      setPendingActions([]);
       setMainSessionId(null);
       setMainMsgs([]);
       setPrecheckReport(null);
-      lastDiagRef.current = "";
       lastStatusRef.current = "";
     } else {
       setContent(null);
@@ -295,10 +268,10 @@ export default function BookShelfPage() {
           ...history,
         ]);
       } catch (e) {
-        setMainMsgs([{ role: "assistant", content: `（Main 接管会话创建失败：${e instanceof Error ? e.message : "未知错误"}。仍可使用内置助手）` }]);
+        setMainMsgs([{ role: "assistant", content: `（Main 接管会话创建失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
       }
     })();
-  }, [tab, selected, mainSessionId]);
+  }, [tab, selected, mainSessionId, mainRetry]);
 
   const sendMainChat = async () => {
     if (!selected || !mainSessionId || !mainInput.trim() || mainBusy) return;
@@ -356,39 +329,6 @@ export default function BookShelfPage() {
     }
   };
 
-  // 流水线失败 → 自动诊断 + 修复建议（每个失败签名只诊断一次）
-  useEffect(() => {
-    if (!selected || selected.status !== "failed") return;
-    const failedStep = selected.steps.find((s) => s.status === "failed");
-    const key = `${selected.error || ""}|${failedStep?.error || ""}`;
-    if (!key || lastDiagRef.current === key) return;
-    lastDiagRef.current = key;
-    (async () => {
-      try {
-        const res = await fetch(`/api/assistant/projects/${selected.project_id}/diagnose`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [] }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "诊断失败");
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `🧠 自动诊断：${data.diagnosis}` }]);
-        if (Array.isArray(data.actions) && data.actions.length) {
-          setPendingActions((prev) => [
-            ...prev,
-            ...data.actions.map((a: { operation: string; arguments: Record<string, unknown>; explain?: string; reason?: string }) => ({
-              operation: a.operation,
-              arguments: a.arguments || {},
-              reply: a.explain || a.reason || "修复建议",
-            })),
-          ]);
-        }
-      } catch {
-        /* 诊断失败不阻塞 */
-      }
-    })();
-  }, [selected]);
-
   // 实时刷新：连跑过程每步推送 novel_pipeline_update
   useWebSocket({
     url: "/ws/events",
@@ -402,7 +342,9 @@ export default function BookShelfPage() {
         if (selectedId) fetchContent(selectedId);
         if (evt.status && evt.status !== lastStatusRef.current) {
           if (evt.status === "completed") {
-            setAsstMsgs((prev) => [...prev, { role: "assistant", content: "✅ 流水线已完成，我看看产出…（可在「大纲章节」页查看章节）" }]);
+            showMsg("✅ 流水线已完成（可去「大纲章节」页查看产出）");
+          } else if (evt.status === "failed") {
+            showMsg("❌ 流水线失败——可在「助手」窗口让 Main 诊断修复");
           }
           lastStatusRef.current = evt.status;
         }
@@ -732,83 +674,6 @@ export default function BookShelfPage() {
 
   // ==================== 助手（总大脑） ====================
 
-  const sendAssistant = async () => {
-    if (!selected || !asstInput.trim() || asstBusy) return;
-    const userMsg = asstInput.trim();
-    setAsstInput("");
-    setAsstMsgs((prev) => [...prev, { role: "user", content: userMsg }]);
-    setAsstBusy(true);
-    setPendingActions([]);
-    try {
-      const res = await fetch(`/api/assistant/projects/${selected.project_id}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...asstMsgs, { role: "user", content: userMsg }] }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "助手调用失败");
-      setAsstMsgs((prev) => [...prev, { role: "assistant", content: data.reply || "（无回复）" }]);
-      if (data.action) {
-        setPendingActions([{ operation: data.action.operation, arguments: data.action.arguments || {}, reply: data.reply || "" }]);
-      }
-    } catch (e) {
-      setAsstMsgs((prev) => [...prev, { role: "assistant", content: `（调用失败：${e instanceof Error ? e.message : "未知错误"}）` }]);
-    } finally {
-      setAsstBusy(false);
-    }
-  };
-
-  const confirmAction = async (action: { operation: string; arguments: Record<string, unknown>; reply: string }) => {
-    if (!selected) return;
-    setAsstBusy(true);
-    try {
-      const res = await fetch(`/api/assistant/projects/${selected.project_id}/actions/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operation: action.operation, arguments: action.arguments }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "执行失败");
-      showMsg(data.message || "动作已执行");
-      setPendingActions((prev) => prev.filter((a) => a !== action));
-      if (data.operation === "workflow_update_node") {
-        setAsstMsgs((prev) => [
-          ...prev,
-          { role: "assistant", content: `✅ 工作流已更新：${data.workflow_id} / ${data.node_id} / ${data.field}（${data.reason || ""}）` },
-        ]);
-      } else if (data.result) {
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: String(data.result) }]);
-      } else if (data.operation === "run_pipeline") {
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: "🚀 整条流水线已串起来开跑，正在后台运行（世界观→角色→故事→卷纲→逐章…），完成或失败我会告诉你。" }]);
-      } else if (data.operation === "run_step") {
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `✅ 已启动 ${String(action.arguments.step_key || "")}，正在后台运行，失败我会自动诊断。` }]);
-      } else if (data.operation === "workflow_run") {
-        setAsstMsgs((prev) => [...prev, { role: "assistant", content: `✅ 已启动工作流 ${data.workflow_id || String(action.arguments.workflow_id || "")}，正在后台运行，失败我会自动诊断。` }]);
-      }
-      await fetchContent(selected.project_id);
-    } catch (e) {
-      showMsg(e instanceof Error ? e.message : "执行失败");
-    } finally {
-      setAsstBusy(false);
-    }
-  };
-
-  const saveAssistantSettings = async (enabled: boolean, model: string) => {
-    if (!selected) return;
-    try {
-      const res = await fetch(`/api/assistant/projects/${selected.project_id}/settings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assistant_enabled: enabled, assistant_model: model }),
-      });
-      if (!res.ok) throw new Error("保存失败");
-      await fetchContent(selected.project_id);
-      showMsg(enabled ? "总大脑 AI 已接入" : "总大脑 AI 已关闭");
-    } catch (e) {
-      showMsg(e instanceof Error ? e.message : "保存失败");
-    }
-  };
-
   const openSkillPicker = async () => {
     if (!selected) return;
     try {
@@ -882,8 +747,6 @@ export default function BookShelfPage() {
 
   const renderAssistant = () => {
     const mountedSkills = content?.project.skill_ids || [];
-    const enabled = content?.project.assistant_enabled !== false;
-    const model = content?.project.assistant_model || "";
     if (mainSessionId) {
       return (
         <div className="flex flex-col h-full min-h-0">
@@ -949,179 +812,28 @@ export default function BookShelfPage() {
       );
     }
     return (
-      <div className="flex flex-col h-full min-h-0">
-        {/* 总大脑设置：AI 开关 + 模型 */}
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-white/5 bg-slate-900/60 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => saveAssistantSettings(!enabled, model)}
-            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
-              enabled ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "bg-white/5 text-slate-400 border border-white/10"
-            }`}
-            aria-pressed={enabled}
-          >
-            {enabled ? "AI 已接入" : "AI 未接入"}
-          </button>
-          <label className="flex items-center gap-1.5 text-xs text-slate-400">
-            模型
-            <select
-              className="rounded-md border border-white/10 bg-slate-950 px-2 py-1 text-xs outline-none focus:border-amber-500"
-              value={model || "zhipu:glm-4.6"}
-              onChange={(e) => saveAssistantSettings(enabled, e.target.value)}
-            >
-              {models.length === 0 && <option value="zhipu:glm-4.6">zhipu:glm-4.6（默认）</option>}
-              {models.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </label>
-          <span className="text-xs text-slate-600">总大脑会读全书上下文、改工作流节点、失败自动诊断</span>
-        </div>
-
-        {/* 挂载的 Skills */}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-500">写作风格：</span>
-          {mountedSkills.length === 0 ? (
-            <span className="text-xs text-slate-600">（未挂载，助手按默认风格输出）</span>
-          ) : (
-            mountedSkills.map((sid) => (
-              <span key={sid} className="rounded bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 text-xs text-pink-300">
-                {sid}
-              </span>
-            ))
-          )}
-          <button
-            type="button"
-            onClick={openSkillPicker}
-            className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
-          >
-            <Wand2 size={12} aria-hidden="true" /> 管理风格
-          </button>
-        </div>
-
-        {/* 动作提案卡（可多个） */}
-        {pendingActions.map((action, ai) => (
-          <div key={ai} className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
-              <Brain size={15} aria-hidden="true" /> 助手提案：{ACTION_LABELS[action.operation] || action.operation}
-            </div>
-            <p className="mt-1 text-xs text-slate-400">{action.reply}</p>
-            {action.operation === "chapter_body_update" && (
-              <div className="mt-2 space-y-1 text-xs text-slate-400">
-                <div>目标：第 {Number(String(action.arguments.chapter_number || "1"))} 章</div>
-                <div>原因：{String(action.arguments.reason || "")}</div>
-                <div className="rounded bg-slate-950/60 p-2 mt-1">
-                  <div className="mb-1 text-slate-500">新正文预览（{String(action.arguments.body || "").length} 字）：</div>
-                  <pre className="whitespace-pre-wrap text-slate-200 max-h-48 overflow-y-auto">{String(action.arguments.body || "")}</pre>
-                </div>
-              </div>
-            )}
-            {action.operation === "run_step" && (
-              <div className="mt-1 text-xs text-slate-400">步骤：{String(action.arguments.step_key || "")}</div>
-            )}
-            {action.operation === "workflow_run" && (
-              <div className="mt-1 text-xs text-slate-400">
-                工作流：{String(action.arguments.workflow_id || "")}
-                {action.arguments.parameter_values ? (
-                  <span className="ml-2 text-slate-500">参数：{JSON.stringify(action.arguments.parameter_values)}</span>
-                ) : null}
-              </div>
-            )}
-            {action.operation === "workflow_update_node" && (
-              <div className="mt-2 space-y-1 text-xs text-slate-400">
-                <div>工作流：{String(action.arguments.workflow_id || "")}</div>
-                <div>节点：{String(action.arguments.node_id || "")}　字段：{String(action.arguments.field || "")}</div>
-                <div className="rounded bg-slate-950/60 p-2 mt-1">
-                  <div className="mb-1 text-slate-500">新值（{String(action.arguments.new_value || "").length} 字）：</div>
-                  <pre className="whitespace-pre-wrap text-slate-200 max-h-40 overflow-y-auto">{String(action.arguments.new_value || "")}</pre>
-                </div>
-              </div>
-            )}
-            {action.operation === "project_update" && (
-              <div className="mt-2 space-y-1 text-xs text-slate-400">
-                <div>将更新以下设定：</div>
-                {Object.entries((action.arguments.fields as Record<string, unknown>) || {}).map(([k, v]) => (
-                  <div key={k} className="rounded bg-slate-950/60 px-2 py-1">
-                    <span className="text-slate-500">{k}：</span>
-                    <span className="text-slate-200">{Array.isArray(v) ? v.join("、") : String(v)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {action.operation === "project_move" && (
-              <div className="mt-2 space-y-1 text-xs text-slate-400">
-                {action.arguments.new_workspace ? <div>新工作区：<code className="text-slate-200">{String(action.arguments.new_workspace)}</code></div> : null}
-                {action.arguments.archive_root ? <div>新存档目录：<code className="text-slate-200">{String(action.arguments.archive_root)}</code></div> : null}
-              </div>
-            )}
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                disabled={asstBusy}
-                onClick={() => confirmAction(action)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                <Check size={14} aria-hidden="true" /> 确认执行
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingActions((prev) => prev.filter((a) => a !== action))}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-              >
-                <X size={14} aria-hidden="true" /> 拒绝
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {/* 对话区 */}
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-white/5 bg-slate-900/40 p-4 space-y-3">
-          {asstMsgs.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <Brain size={36} className="text-amber-400/60" aria-hidden="true" />
-              <p className="max-w-md text-sm text-slate-500">
-                我是这本书的总大脑。可以问我书的状态、世界观、角色、大纲；
-                也可以让我"写第1章"、"把第2章改得更紧张"——涉及写入的内容会先给你确认。
-              </p>
-            </div>
-          ) : (
-            asstMsgs.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
-                  m.role === "user" ? "bg-amber-600/20 text-slate-100" : "bg-slate-800/80 text-slate-200"
-                }`}>
-                  {m.content}
-                </div>
-              </div>
-            ))
-          )}
-          {asstBusy && (
-            <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-lg bg-slate-800/80 px-3 py-2 text-sm text-slate-400">
-                <Loader2 size={14} className="animate-spin" aria-hidden="true" /> 总大脑思考中…
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 输入 */}
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            className="flex-1 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
-            value={asstInput}
-            onChange={(e) => setAsstInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendAssistant()}
-            placeholder="问书的状态，或让我写/改某一章…"
-          />
-          <button
-            type="button"
-            disabled={asstBusy || !asstInput.trim() || !enabled}
-            onClick={sendAssistant}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            <Send size={14} aria-hidden="true" /> 发送
-          </button>
-        </div>
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 rounded-lg border border-white/5 bg-slate-900/40 p-8 text-center">
+        {mainMsgs.length > 0 ? (
+          <p className="max-w-md whitespace-pre-wrap text-sm text-slate-400">{mainMsgs[mainMsgs.length - 1].content}</p>
+        ) : (
+          <>
+            <Loader2 size={20} className="animate-spin text-amber-400" aria-hidden="true" />
+            <p className="text-sm text-slate-500">正在连接 Workflow Main…</p>
+          </>
+        )}
+        <p className="max-w-md text-xs text-slate-600">
+          助手页只是 Workflow Main 的接入窗口：填参数、建任务、启动/审批、改工作流节点、失败诊断，全部由 Main 负责。
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setMainMsgs([]);
+            setMainRetry((n) => n + 1);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+        >
+          <RotateCcw size={14} aria-hidden="true" /> 重新连接
+        </button>
       </div>
     );
   };
